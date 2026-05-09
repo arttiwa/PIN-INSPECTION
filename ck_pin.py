@@ -282,18 +282,18 @@ def inspect_sheet(image_path,
 
 
 # p5 = destination\test2\capture_cam1_7.jpg
-MODEEE = "P5"
+MODEEE = "P1"
 TYPEE = "P"
+NUM = " (3)"
 
 # global parameters (ปรับได้ตามแต่ละรุ่น)
-
 date_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 BRIGHTNESS_MIN = 150
 BRIGHTNESS_MAX = 220
 TEMPLATE_REF_POS = (10, 10)
 EXPECTED_PIN_HOLES = []
-IMG_PATH = f"destination\\test1\\{MODEEE}-{TYPEE}-NL1_5.jpg"
+IMG_PATH = f"destination\\test1\\{MODEEE}-{TYPEE}-{NUM}.jpg"
 OUTPUT_PATH = f"result_{MODEEE}_{TYPEE}_{date_time}.jpg"
 
 if MODEEE == "P5":
@@ -376,15 +376,16 @@ elif MODEEE == "P5":
 # [ERROR] หา reference hole ไม่เจอ
 
 
-results, passed = inspect_sheet(
-    image_path=IMG_PATH,
-    template_ref_pos=TEMPLATE_REF_POS,
-    expected_pin_holes=EXPECTED_PIN_HOLES,
-    search_radius=50,    # ปรับถ้า circle จริงขยับเยอะ
-    output_path=OUTPUT_PATH,
-    brigh_min=BRIGHTNESS_MIN,
-    brigh_max=BRIGHTNESS_MAX
-)
+if __name__ == "__main__":
+    results, passed = inspect_sheet(
+        image_path=IMG_PATH,
+        template_ref_pos=TEMPLATE_REF_POS,
+        expected_pin_holes=EXPECTED_PIN_HOLES,
+        search_radius=50,    # ปรับถ้า circle จริงขยับเยอะ
+        output_path=OUTPUT_PATH,
+        brigh_min=BRIGHTNESS_MIN,
+        brigh_max=BRIGHTNESS_MAX
+    )
 
 
 
