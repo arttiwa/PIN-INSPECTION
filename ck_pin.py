@@ -281,18 +281,27 @@ def inspect_sheet(image_path,
 
 
 
-
-MODEEE = "P1"
+# p5 = destination\test2\capture_cam1_7.jpg
+MODEEE = "P5"
 TYPEE = "P"
 
 # global parameters (ปรับได้ตามแต่ละรุ่น)
+
+date_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
 BRIGHTNESS_MIN = 150
 BRIGHTNESS_MAX = 220
 TEMPLATE_REF_POS = (10, 10)
 EXPECTED_PIN_HOLES = []
-IMG_PATH = f"destination\{MODEEE}-{TYPEE}-NL1_5.jpg"
+IMG_PATH = f"destination\\test1\\{MODEEE}-{TYPEE}-NL1_5.jpg"
+OUTPUT_PATH = f"result_{MODEEE}_{TYPEE}_{date_time}.jpg"
 
-date_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+if MODEEE == "P5":
+    IMG_PATH = f"destination\\test2\\capture_cam1_7.jpg"
+    OUTPUT_PATH = f"result_P5_P_{date_time}.jpg"
+
+
+
 
 
 if MODEEE == "P1":
@@ -349,6 +358,19 @@ elif MODEEE == "P4":
     BRIGHTNESS_MIN = 150
     BRIGHTNESS_MAX = 220
 
+elif MODEEE == "P5":
+    # P5-P-NL1_1.jpg
+    EXPECTED_PIN_HOLES = [
+        (2915,  494,  41),  # circle #8
+        (2666, 1004,  62),  # circle #26
+        (2872, 1082,  54),  # circle #28 ****
+        (2288, 1433,  56),  # circle #35
+    ]
+    TEMPLATE_REF_POS = (2872, 1082)
+    
+    BRIGHTNESS_MIN = 150
+    BRIGHTNESS_MAX = 220
+    
 # [Image] 4056x3040
 # [Circles] detect ได้ 144 circles
 # [ERROR] หา reference hole ไม่เจอ
@@ -359,7 +381,7 @@ results, passed = inspect_sheet(
     template_ref_pos=TEMPLATE_REF_POS,
     expected_pin_holes=EXPECTED_PIN_HOLES,
     search_radius=50,    # ปรับถ้า circle จริงขยับเยอะ
-    output_path=f"ZZ_result_{MODEEE}_{TYPEE}_{date_time}.jpg",
+    output_path=OUTPUT_PATH,
     brigh_min=BRIGHTNESS_MIN,
     brigh_max=BRIGHTNESS_MAX
 )

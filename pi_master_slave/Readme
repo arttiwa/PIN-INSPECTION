@@ -1,0 +1,114 @@
+# Pi Capture System — Setup Guide
+
+## Files
+| File             | Runs on  | Purpose                        |
+|------------------|----------|-------------------------------|
+| `slave_server.py`| Slave Pi | Flask REST API + camera        |
+| `master_app.py`  | Master Pi| Tkinter GUI control app        |
+| `requirements_slave.txt` | Slave Pi | Python deps          |
+| `requirements_master.txt`| Master Pi| Python deps          |
+
+---
+
+## 1  Find your Slave Pi's IP address
+On the Slave Pi run:
+```bash
+hostname -I
+```
+Note the IP (e.g. `192.168.1.100`). You'll type this into the master GUI.
+
+---
+
+## 2  Slave Pi setup
+
+### Install system packages
+```bash
+sudo apt update
+sudo apt install -y python3-pip python3-flask libcamera-tools
+```
+
+### Install Python packages
+```bash
+pip3 install flask --break-system-packages
+```
+
+### (Recommended) Install picamera2 if using Pi Camera Module
+```bash
+sudo apt install -y python3-picamera2
+```
+
+### Copy `slave_server.py` to the Slave Pi, then run it
+```bash
+python3 slave_server.py
+```
+
+### (Optional) Auto-start on boot with systemd
+```ini
+# /etc/systemd/system/pi-capture-slave.service
+[Unit]
+Description=Pi Capture Slave Server
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/pi/slave_server.py
+WorkingDirectory=/home/pi
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target
+```
+```bash
+sudo systemctl enable pi-capture-slave
+sudo systemctl start pi-capture-slave
+```
+
+---
+
+## 3  Master Pi setup
+
+### Install system packages
+```bash
+sudo apt update
+sudo apt install -y python3-pip python3-tk python3-pil python3-pil.imagetk
+```
+
+### Install Python packages
+```bash
+pip3 install requests pillow --break-system-packages
+```
+
+### Copy `master_app.py` to the Master Pi, then run it
+```bash
+python3 master_app.py
+```
+
+---
+
+## 4  Using the GUI
+
+1. Enter the **Slave IP address** in the sidebar (e.g. `192.168.1.100`)
+2. Click **Ping Slave** — the dot should turn green (● online)
+3. Click **📷 Capture Image** — the image appears on the right panel
+4. Click **💾 Save Image** to keep a local copy in `~/Pictures/captures/`
+
+The slave's temporary file is deleted automatically after every capture.
+
+---
+
+## 5  Firewall — open port 5000 on the Slave Pi
+```bash
+sudo ufw allow 5000/tcp
+```
+
+---
+
+## 6  Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| "Cannot reach" | Check both Pis are on same network; verify slave server is running |
+| "picamera2 not found" | `sudo apt install python3-picamera2` on the Slave Pi |
+| libcamera-still fails | Enable camera in `sudo raspi-config` → Interface Options |
+| USB webcam not found | Install `fswebcam`: `sudo apt install fswebcam` |
+| Permission denied on camera | Add user to `video` group: `sudo usermod -aG video pi` |

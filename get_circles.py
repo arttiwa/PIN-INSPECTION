@@ -109,4 +109,4 @@ def detect_and_label_all_circles(image_path, output_path="circles_labeled.jpg"):
 
 
 # ใช้งาน
-circles = detect_and_label_all_circles("destination\P4-P-NL1_1.jpg", output_path="get_circles/circles_labeled_P4.jpg")
+circles = detect_and_label_all_circles("destination\\test2\\capture_cam1_7.jpg", output_path="get_circles/test2_circles_1_7.jpg")
