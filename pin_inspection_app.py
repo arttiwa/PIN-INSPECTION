@@ -23,7 +23,7 @@ SYSTEM_MODE = "window"
 # SYSTEM_MODE = "rasp"
 
 # Start mode when no command line argument is provided: "setup" or "use".
-APP_MODE = "use"
+APP_MODE = "setup"
 
 CONFIG_PATH = "inspection_settings.json"
 OUTPUT_DIR = "inspection_output"
@@ -37,8 +37,8 @@ CAMERA_SOURCES = {
 # On Windows you can test without real cameras by setting paths here.
 # Set a camera image to "" to capture from CAMERA_SOURCES instead.
 WINDOW_TEST_IMAGES = {
-    "cam0": r"captures\P1-P- (14).jpg",
-    "cam1": "",
+    "cam0": r"captures/P1-P- (14).jpg",
+    "cam1": r"captures/P2-P- (5).jpg",
 }
 
 # Raspberry Pi usually captures from real cameras.

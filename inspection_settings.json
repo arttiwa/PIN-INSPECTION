@@ -11,37 +11,90 @@
         "param2": 30
       },
       "selected_circle_ids": [
-        13,
-        14,
-        16
+        14
       ],
       "expected_pin_holes": [
-        [
-          1986,
-          1259,
-          109
-        ],
         [
           1445,
           1449,
           111
-        ],
-        [
-          1064,
-          1627,
-          112
         ]
       ],
       "template_ref_pos": [
-        1986,
-        1259
+        1445,
+        1449
       ],
       "inspection": {
         "search_radius": 50,
         "brightness_min": 150,
-        "brightness_max": 220
+        "brightness_max": 250
       },
+      "pin_conditions": [
+        {
+          "search_radius": 50,
+          "brightness_min": 150,
+          "brightness_max": 250
+        }
+      ],
       "read_qr": true
+    },
+    "cam1": {
+      "circle_filter": {
+        "min_radius": 20,
+        "max_radius": 80,
+        "min_dist": 100,
+        "param1": 60,
+        "param2": 30
+      },
+      "selected_circle_ids": [
+        22,
+        19,
+        15
+      ],
+      "expected_pin_holes": [
+        [
+          623,
+          788,
+          59
+        ],
+        [
+          917,
+          691,
+          61
+        ],
+        [
+          1128,
+          594,
+          60
+        ]
+      ],
+      "template_ref_pos": [
+        623,
+        788
+      ],
+      "inspection": {
+        "search_radius": 50,
+        "brightness_min": 120,
+        "brightness_max": 160
+      },
+      "pin_conditions": [
+        {
+          "search_radius": 50,
+          "brightness_min": 180,
+          "brightness_max": 220
+        },
+        {
+          "search_radius": 50,
+          "brightness_min": 140,
+          "brightness_max": 160
+        },
+        {
+          "search_radius": 50,
+          "brightness_min": 160,
+          "brightness_max": 200
+        }
+      ],
+      "read_qr": false
     }
   }
 }

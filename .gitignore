@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Local runtime output
+inspection_output/
+testing_result/
+*.log
+
+# Local test/capture data
+captures/
+destination/
+
+# Generated inspection images
+result_*.jpg
+get_circles/*_geted.jpg
+get_circles/*_circles.json
