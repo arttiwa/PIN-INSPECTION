@@ -72,7 +72,22 @@ def _decode_with_zxing(image) -> List[Dict[str, Any]]:
     return results
 
 
-def _preprocess_images(image) -> List[Any]:
+def _resize_for_qr(image, max_side: int = 1600):
+    height, width = image.shape[:2]
+    longest_side = max(height, width)
+    if longest_side <= max_side:
+        return image
+
+    scale = max_side / longest_side
+    return cv2.resize(
+        image,
+        (max(1, int(width * scale)), max(1, int(height * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
+
+
+def _preprocess_images(image):
+    image = _resize_for_qr(image)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
     blurred = cv2.GaussianBlur(clahe, (3, 3), 0)
@@ -97,7 +112,6 @@ def _preprocess_images(image) -> List[Any]:
         cv2.bitwise_not(adaptive),
     ]
 
-    attempts = []
     for base in base_images:
         for angle in (0, 90, 180, 270):
             rotated = base
@@ -110,24 +124,20 @@ def _preprocess_images(image) -> List[Any]:
 
             for scale in (1.0, 1.5, 2.0, 3.0):
                 if scale == 1.0:
-                    attempts.append(rotated)
+                    yield rotated
                 else:
-                    attempts.append(
-                        cv2.resize(
-                            rotated,
-                            None,
-                            fx=scale,
-                            fy=scale,
-                            interpolation=cv2.INTER_CUBIC,
-                        )
+                    yield cv2.resize(
+                        rotated,
+                        None,
+                        fx=scale,
+                        fy=scale,
+                        interpolation=cv2.INTER_CUBIC,
                     )
-
-    return attempts
 
 
 def read_codes_from_image(image, debug: bool = False) -> List[Dict[str, Any]]:
     detector = cv2.QRCodeDetector()
-    attempts = [image] + _preprocess_images(image)
+    attempts = (attempt for group in ((image,), _preprocess_images(image)) for attempt in group)
 
     seen = set()
     found: List[Dict[str, Any]] = []

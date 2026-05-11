@@ -13,6 +13,7 @@ from pin_inspection_app import (
     RASP_TEST_IMAGES,
     SYSTEM_MODE,
     WINDOW_TEST_IMAGES,
+    capture_image,
     draw_code_results,
     save_result_image,
 )
@@ -27,6 +28,7 @@ class UseWorkflow(tk.Frame):
         self.action_buttons = []
         self.status_var = tk.StringVar(value="Ready.")
         self.pending_panels = 0
+        self.run_queue = []
         self._build_layout()
 
     def refresh(self):
@@ -75,15 +77,23 @@ class UseWorkflow(tk.Frame):
         if any(panel.is_busy for panel in self.panels.values()):
             return
         self.status_var.set("Running inspection for cam0 and cam1...")
-        self.pending_panels = len(self.panels)
+        self.run_queue = list(self.panels.values())
+        self.pending_panels = len(self.run_queue)
         for button in self.action_buttons:
             button.configure(state="disabled")
-        for panel in self.panels.values():
-            panel.run_inspection()
+        self._run_next_panel()
+
+    def _run_next_panel(self):
+        if not self.run_queue:
+            return
+        panel = self.run_queue.pop(0)
+        self.status_var.set(f"Running inspection for {panel.camera_name}...")
+        panel.run_inspection()
 
     def _panel_finished(self):
         self.pending_panels = max(0, self.pending_panels - 1)
         if self.pending_panels > 0:
+            self._run_next_panel()
             return
         for button in self.action_buttons:
             button.configure(state="normal")
@@ -161,7 +171,7 @@ class CameraResultPanel(tk.Frame):
 
         image = self._read_test_image()
         if image is None:
-            image = self._capture_image()
+            image = capture_image(self.camera_name, use_test_image=False)
         if image is None:
             self.show_alert(f"Cannot load image for {self.camera_name}.", "error")
             self.on_finished()
@@ -179,9 +189,15 @@ class CameraResultPanel(tk.Frame):
             result_image, _results, pin_passed = inspect_image_with_pin_conditions(image, camera_config)
             code_text = ""
             if camera_config.get("read_qr"):
-                codes = read_codes_from_image(image)
+                try:
+                    codes = read_codes_from_image(image)
+                except Exception as exc:
+                    print(f"[QR ERROR] {self.camera_name}: {exc}")
+                    codes = []
                 result_image = draw_code_results(result_image, codes)
                 code_text = codes[0]["data"] if codes else "NOT FOUND"
+                if not codes:
+                    print(f"[QR] {self.camera_name}: NOT FOUND")
 
             status = "PASS" if pin_passed else "FAIL"
             cv2.putText(
@@ -227,17 +243,6 @@ class CameraResultPanel(tk.Frame):
         if not path.is_absolute():
             path = APP_DIR / path
         return cv2.imread(str(path))
-
-    def _capture_image(self):
-        source = CAMERA_SOURCES.get(self.camera_name)
-        if source is None:
-            return None
-        cap = cv2.VideoCapture(source)
-        ok, frame = cap.read()
-        cap.release()
-        if not ok:
-            return None
-        return frame
 
     def render(self):
         self.canvas.delete("all")

@@ -15,6 +15,7 @@ from pin_inspection_app import (
     RASP_TEST_IMAGES,
     SYSTEM_MODE,
     WINDOW_TEST_IMAGES,
+    capture_image,
     detect_circles,
     draw_code_results,
 )
@@ -46,6 +47,7 @@ class SetupWorkflow(tk.Frame):
         self.view_mode = "setup"
 
         self.camera_var = tk.StringVar(value=next(iter(CAMERA_SOURCES), "cam0"))
+        self.empty_message = "No image for now. Please click Recapture for the setup image."
         self.read_qr_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Ready.")
         self.setting_vars = {
@@ -171,7 +173,7 @@ class SetupWorkflow(tk.Frame):
         self.condition_button.grid(row=0, column=0, padx=(0, 8))
         self.action_buttons.append(self.condition_button)
 
-        self.recapture_button = secondary_button(option_buttons, "Recapture", self.load_camera_image)
+        self.recapture_button = secondary_button(option_buttons, "Recapture", self.recapture_camera_image)
         self.recapture_button.grid(row=0, column=1)
         self.action_buttons.append(self.recapture_button)
 
@@ -198,17 +200,36 @@ class SetupWorkflow(tk.Frame):
         self.canvas.bind("<ButtonRelease-3>", self._end_drag)
 
     def load_camera_image(self):
+        self._load_camera_image(force_capture=False)
+
+    def recapture_camera_image(self):
+        self._load_camera_image(force_capture=True)
+
+    def _load_camera_image(self, force_capture=False):
         if self._busy:
             return
 
         camera_name = self.camera_var.get()
         self.apply_camera_setup(camera_name)
-        image = self._read_test_image(camera_name)
-        if image is None:
-            image = self._capture_image(camera_name)
+        image = None
+        if force_capture:
+            image = capture_image(camera_name, use_test_image=False)
+        else:
+            image = self._read_test_image(camera_name)
 
         if image is None:
-            self.show_alert(f"Cannot load image for {camera_name}.", "error")
+            self.image = None
+            self.result_image = None
+            self.view_mode = "setup"
+            self._reset_view()
+            self.circles = []
+            self.selected_ids = self._configured_selected_ids(camera_name)
+            if force_capture:
+                self.show_alert(f"Cannot capture for {camera_name}.", "error")
+                self.status_var.set(f"Cannot capture for {camera_name}.")
+            else:
+                self.status_var.set(self.empty_message)
+            self.render()
             return
 
         self.image = image
@@ -217,7 +238,10 @@ class SetupWorkflow(tk.Frame):
         self._reset_view()
         self.circles = []
         self.selected_ids = self._configured_selected_ids(camera_name)
-        self.status_var.set(f"Loaded image for {camera_name}. Click Process to detect circles.")
+        if force_capture:
+            self.status_var.set(f"Captured new image for {camera_name}. Click Process to detect circles.")
+        else:
+            self.status_var.set(f"Loaded image for {camera_name}. Click Process to detect circles.")
         self.render()
 
     def apply_camera_setup(self, camera_name):
@@ -265,18 +289,6 @@ class SetupWorkflow(tk.Frame):
         if image is None:
             self.show_alert(f"Cannot read test image: {path}", "error")
         return image
-
-    def _capture_image(self, camera_name):
-        source = CAMERA_SOURCES.get(camera_name)
-        if source is None:
-            return None
-
-        cap = cv2.VideoCapture(source)
-        ok, frame = cap.read()
-        cap.release()
-        if not ok:
-            return None
-        return frame
 
     def _settings(self):
         settings = {}
@@ -556,9 +568,16 @@ class SetupWorkflow(tk.Frame):
             result_image, _results, pin_passed = inspect_image_with_pin_conditions(image, setup)
             code_text = ""
             if setup.get("read_qr"):
-                codes = read_codes_from_image(image)
+                camera_name = self.camera_var.get()
+                try:
+                    codes = read_codes_from_image(image)
+                except Exception as exc:
+                    print(f"[QR ERROR] {camera_name}: {exc}")
+                    codes = []
                 result_image = draw_code_results(result_image, codes)
                 code_text = codes[0]["data"] if codes else "NOT FOUND"
+                if not codes:
+                    print(f"[QR] {camera_name}: NOT FOUND")
             self.after(
                 0,
                 lambda: self._result_preview_done(
@@ -656,9 +675,11 @@ class SetupWorkflow(tk.Frame):
             self.canvas.create_text(
                 max(1, self.canvas.winfo_width() // 2),
                 max(1, self.canvas.winfo_height() // 2),
-                text="No image loaded",
+                text=self.empty_message,
                 fill="#6b7280",
                 font=("Helvetica", 14, "bold"),
+                width=max(200, self.canvas.winfo_width() - 80),
+                justify="center",
             )
             self._draw_loading_overlay()
             self._draw_alert_overlay()

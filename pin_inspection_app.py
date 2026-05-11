@@ -1,6 +1,10 @@
 import argparse
 import datetime
 import json
+import os
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -18,8 +22,9 @@ from read_qr_code import read_codes_from_image
 
 
 # ===== User settings =====
-# Change to "rasp" on Raspberry Pi if you want different defaults below.
-SYSTEM_MODE = "window"
+# Change the default to "rasp" on Raspberry Pi, or run with PIN_SYSTEM_MODE=rasp.
+SYSTEM_MODE = os.environ.get("PIN_SYSTEM_MODE", "window").strip().lower()
+print(f"System mode: {SYSTEM_MODE} (set PIN_SYSTEM_MODE=rasp to change)")
 # SYSTEM_MODE = "rasp"
 
 # Start mode when no command line argument is provided: "setup" or "use".
@@ -94,14 +99,41 @@ def test_image_for(camera_name: str) -> str:
     return images.get(camera_name, "")
 
 
-def capture_image(camera_name: str) -> Optional[np.ndarray]:
-    test_path = test_image_for(camera_name)
-    if test_path:
-        img = cv2.imread(test_path)
-        if img is None:
-            print(f"[ERROR] Cannot read test image: {test_path}")
-        return img
+def capture_pi_image(camera_name: str) -> Optional[np.ndarray]:
+    source = CAMERA_SOURCES[camera_name]
+    command = shutil.which("rpicam-still") or shutil.which("libcamera-still")
+    if not command:
+        print("[ERROR] Cannot find rpicam-still or libcamera-still.")
+        return None
 
+    capture_path = Path(tempfile.gettempdir()) / f"pin_inspection_{camera_name}.jpg"
+    cmd = [
+        command,
+        "--camera",
+        str(source),
+        "--timeout",
+        "1000",
+        "-o",
+        str(capture_path),
+    ]
+
+    try:
+        subprocess.run(cmd, check=True)
+        img = cv2.imread(str(capture_path))
+        if img is None:
+            print(f"[ERROR] Cannot read Pi capture: {capture_path}")
+        return img
+    except subprocess.CalledProcessError as exc:
+        print(f"[ERROR] Pi capture failed for {camera_name} source={source}: {exc}")
+        return None
+    finally:
+        try:
+            capture_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def capture_opencv_image(camera_name: str) -> Optional[np.ndarray]:
     source = CAMERA_SOURCES[camera_name]
     cap = cv2.VideoCapture(source)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_WIDTH)
@@ -113,6 +145,19 @@ def capture_image(camera_name: str) -> Optional[np.ndarray]:
         print(f"[ERROR] Cannot capture from {camera_name} source={source}")
         return None
     return frame
+
+
+def capture_image(camera_name: str, use_test_image: bool = True) -> Optional[np.ndarray]:
+    test_path = test_image_for(camera_name) if use_test_image else ""
+    if test_path:
+        img = cv2.imread(test_path)
+        if img is None:
+            print(f"[ERROR] Cannot read test image: {test_path}")
+        return img
+
+    if SYSTEM_MODE == "rasp":
+        return capture_pi_image(camera_name)
+    return capture_opencv_image(camera_name)
 
 
 def display_scale(img: np.ndarray) -> float:
@@ -545,14 +590,17 @@ def save_result_image(camera_name: str, img: np.ndarray, suffix: str) -> str:
 
 
 def setup_camera(camera_name: str, config: Dict) -> None:
+    force_capture = False
     while True:
-        img = capture_image(camera_name)
+        img = capture_image(camera_name, use_test_image=not force_capture)
+        force_capture = False
         if img is None:
             return
         setup = select_circles_ui(camera_name, img)
         if setup is None:
             return
         if setup.get("recapture"):
+            force_capture = True
             continue
 
         preview, _results, passed = inspect_image(img, setup)
@@ -561,13 +609,18 @@ def setup_camera(camera_name: str, config: Dict) -> None:
 
         if read_code:
             while True:
-                codes = read_codes_from_image(img)
+                try:
+                    codes = read_codes_from_image(img)
+                except Exception as exc:
+                    print(f"[QR ERROR] {camera_name}: {exc}")
+                    codes = []
                 code_img = draw_code_results(img, codes)
                 key = show_image(f"code result {camera_name}", code_img)
                 if codes:
                     break
+                print(f"[QR] {camera_name}: NOT FOUND")
                 if key == ord("r"):
-                    img = capture_image(camera_name)
+                    img = capture_image(camera_name, use_test_image=False)
                     if img is None:
                         break
                 elif key == ord("f"):
@@ -602,9 +655,15 @@ def run_use() -> None:
         result_img, _results, pin_passed = inspect_image(img, camera_config)
         code_text = ""
         if camera_config.get("read_qr"):
-            codes = read_codes_from_image(img)
+            try:
+                codes = read_codes_from_image(img)
+            except Exception as exc:
+                print(f"[QR ERROR] {camera_name}: {exc}")
+                codes = []
             result_img = draw_code_results(result_img, codes)
             code_text = codes[0]["data"] if codes else "NOT FOUND"
+            if not codes:
+                print(f"[QR] {camera_name}: NOT FOUND")
 
         status = "PASS" if pin_passed else "FAIL"
         cv2.putText(result_img, f"{camera_name} {status} {code_text}", (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 0) if pin_passed else (0, 0, 220), 3)
