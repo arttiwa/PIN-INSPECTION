@@ -22,6 +22,79 @@ from read_qr_code import read_codes_from_image
 class UseWorkflow(tk.Frame):
     def __init__(self, parent):
         super().__init__(parent, bg="#ffffff")
+        self._has_loaded = False
+        self.panels = {}
+        self.action_buttons = []
+        self.status_var = tk.StringVar(value="Ready.")
+        self.pending_panels = 0
+        self._build_layout()
+
+    def refresh(self):
+        if not self._has_loaded:
+            self._has_loaded = True
+            self.status_var.set("Click Run Inspection to inspect cam0 and cam1.")
+
+    def _build_layout(self):
+        self.rowconfigure(1, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        toolbar = tk.Frame(self, bg="#ffffff")
+        toolbar.grid(row=0, column=0, sticky="ew", padx=20, pady=20)
+        toolbar.columnconfigure(2, weight=1)
+
+        run_button = primary_button(toolbar, "Run Inspection", self.run_all)
+        run_button.configure(
+            bg="#2563eb",
+            fg="#ffffff",
+            activebackground="#1d4ed8",
+            activeforeground="#ffffff",
+        )
+        run_button.grid(row=0, column=0, sticky="w")
+        self.action_buttons.append(run_button)
+
+        tk.Label(
+            toolbar,
+            textvariable=self.status_var,
+            bg="#ffffff",
+            fg="#4b5563",
+            font=("Helvetica", 11),
+        ).grid(row=0, column=2, sticky="e")
+
+        content = tk.Frame(self, bg="#ffffff")
+        content.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 20))
+        content.rowconfigure(0, weight=1)
+        content.columnconfigure(0, weight=1)
+        content.columnconfigure(1, weight=1)
+
+        for column, camera_name in enumerate(("cam0", "cam1")):
+            panel = CameraResultPanel(content, camera_name, self._panel_finished)
+            panel.grid(row=0, column=column, sticky="nsew", padx=(0, 10) if column == 0 else (10, 0))
+            self.panels[camera_name] = panel
+
+    def run_all(self):
+        if any(panel.is_busy for panel in self.panels.values()):
+            return
+        self.status_var.set("Running inspection for cam0 and cam1...")
+        self.pending_panels = len(self.panels)
+        for button in self.action_buttons:
+            button.configure(state="disabled")
+        for panel in self.panels.values():
+            panel.run_inspection()
+
+    def _panel_finished(self):
+        self.pending_panels = max(0, self.pending_panels - 1)
+        if self.pending_panels > 0:
+            return
+        for button in self.action_buttons:
+            button.configure(state="normal")
+        self.status_var.set("Inspection finished.")
+
+
+class CameraResultPanel(tk.Frame):
+    def __init__(self, parent, camera_name, on_finished):
+        super().__init__(parent, bg="#ffffff", highlightbackground="#e5e7eb", highlightthickness=1)
+        self.camera_name = camera_name
+        self.on_finished = on_finished
         self.image = None
         self.photo = None
         self.scale = 1.0
@@ -31,66 +104,36 @@ class UseWorkflow(tk.Frame):
         self.pan_screen_x = 0
         self.pan_screen_y = 0
         self._drag_start = None
-        self._drag_moved = False
-        self._busy = False
         self._alert = None
         self._alert_job = None
-        self._has_loaded = False
+        self.is_busy = False
+        self.status_var = tk.StringVar(value="Waiting.")
 
-        config = load_config()
-        cameras = list(config.get("cameras", {}).keys()) or list(CAMERA_SOURCES.keys())
-        self.camera_var = tk.StringVar(value=cameras[0] if cameras else "cam0")
-        self.status_var = tk.StringVar(value="Ready.")
-        self.action_buttons = []
+        self._build_layout()
 
-        self._build_layout(cameras)
-
-    def refresh(self):
-        if not self._has_loaded:
-            self._has_loaded = True
-            self.status_var.set("Choose a camera, then click Run Inspection.")
-
-    def _build_layout(self, cameras):
+    def _build_layout(self):
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
 
-        toolbar = tk.Frame(self, bg="#ffffff")
-        toolbar.grid(row=0, column=0, sticky="ew", padx=20, pady=20)
-        toolbar.columnconfigure(5, weight=1)
+        header = tk.Frame(self, bg="#ffffff")
+        header.grid(row=0, column=0, sticky="ew", padx=14, pady=12)
+        header.columnconfigure(1, weight=1)
 
         tk.Label(
-            toolbar,
-            text="Camera",
+            header,
+            text=self.camera_name,
             bg="#ffffff",
-            fg="#374151",
-            font=("Helvetica", 11, "bold"),
-        ).grid(row=0, column=0, sticky="w", padx=(0, 8))
-
-        menu_values = cameras or ["cam0"]
-        camera_menu = tk.OptionMenu(toolbar, self.camera_var, *menu_values)
-        camera_menu.configure(
-            bg="#f9fafb",
             fg="#111827",
-            activebackground="#eef2ff",
-            activeforeground="#1d4ed8",
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground="#d1d5db",
-            font=("Helvetica", 11),
-        )
-        camera_menu.grid(row=0, column=1, sticky="w", padx=(0, 16))
-
-        run_button = primary_button(toolbar, "Run Inspection", self.run_inspection)
-        run_button.grid(row=0, column=2, sticky="w")
-        self.action_buttons.append(run_button)
+            font=("Helvetica", 15, "bold"),
+        ).grid(row=0, column=0, sticky="w")
 
         tk.Label(
-            toolbar,
+            header,
             textvariable=self.status_var,
             bg="#ffffff",
             fg="#4b5563",
-            font=("Helvetica", 11),
-        ).grid(row=0, column=5, sticky="e")
+            font=("Helvetica", 10),
+        ).grid(row=0, column=1, sticky="e")
 
         self.canvas = tk.Canvas(
             self,
@@ -99,7 +142,7 @@ class UseWorkflow(tk.Frame):
             highlightthickness=1,
             cursor="fleur",
         )
-        self.canvas.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 20))
+        self.canvas.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
         self.canvas.bind("<Configure>", lambda _event: self.render())
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Button-4>", self._on_mousewheel)
@@ -109,30 +152,29 @@ class UseWorkflow(tk.Frame):
         self.canvas.bind("<ButtonRelease-1>", self._end_drag)
 
     def run_inspection(self):
-        if self._busy:
-            return
-        camera_name = self.camera_var.get()
         config = load_config()
-        camera_config = config.get("cameras", {}).get(camera_name)
+        camera_config = config.get("cameras", {}).get(self.camera_name)
         if not camera_config:
-            self.show_alert(f"No setup config for {camera_name}.", "warning")
+            self.show_alert(f"No setup config for {self.camera_name}.", "warning")
+            self.on_finished()
             return
 
-        image = self._read_test_image(camera_name)
+        image = self._read_test_image()
         if image is None:
-            image = self._capture_image(camera_name)
+            image = self._capture_image()
         if image is None:
-            self.show_alert(f"Cannot load image for {camera_name}.", "error")
+            self.show_alert(f"Cannot load image for {self.camera_name}.", "error")
+            self.on_finished()
             return
 
-        self._set_busy(True, "Running inspection. Please wait...")
+        self._set_busy(True, "Running...")
         threading.Thread(
             target=self._inspection_worker,
-            args=(camera_name, image, camera_config),
+            args=(image, camera_config),
             daemon=True,
         ).start()
 
-    def _inspection_worker(self, camera_name, image, camera_config):
+    def _inspection_worker(self, image, camera_config):
         try:
             result_image, _results, pin_passed = inspect_image_with_pin_conditions(image, camera_config)
             code_text = ""
@@ -144,14 +186,14 @@ class UseWorkflow(tk.Frame):
             status = "PASS" if pin_passed else "FAIL"
             cv2.putText(
                 result_image,
-                f"{camera_name} {status} {code_text}",
+                f"{self.camera_name} {status} {code_text}",
                 (20, 120),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.9,
                 (0, 200, 0) if pin_passed else (0, 0, 220),
                 3,
             )
-            output_path = save_result_image(camera_name, result_image, "result")
+            output_path = save_result_image(self.camera_name, result_image, "result")
             self.after(0, lambda: self._inspection_done(result_image, status, code_text, output_path, None))
         except Exception as exc:
             self.after(0, lambda error=exc: self._inspection_done(None, "FAIL", "", "", error))
@@ -160,22 +202,24 @@ class UseWorkflow(tk.Frame):
         self._set_busy(False)
         if error is not None:
             self.show_alert(f"Inspection failed: {error}", "error")
+            self.on_finished()
             return
 
         self.image = result_image
         self._reset_view()
         self.status_var.set(f"Pin {status}. Code: {code_text or '-'}")
         if code_text == "NOT FOUND":
-            self.show_alert("No QR/Data Matrix found in image.", "warning")
+            self.show_alert("No QR/Data Matrix found.", "warning")
         elif status != "PASS":
-            self.show_alert("Pin inspection failed. Check marked locations.", "error")
+            self.show_alert("Pin inspection failed.", "error")
         else:
-            self.show_alert(f"Result saved: {Path(output_path).name}", "info")
+            self.show_alert(f"Saved: {Path(output_path).name}", "info")
         self.render()
+        self.on_finished()
 
-    def _read_test_image(self, camera_name):
+    def _read_test_image(self):
         images = RASP_TEST_IMAGES if SYSTEM_MODE == "rasp" else WINDOW_TEST_IMAGES
-        test_path = images.get(camera_name, "")
+        test_path = images.get(self.camera_name, "")
         if not test_path:
             return None
         normalized = test_path.replace("\\", "/")
@@ -184,8 +228,8 @@ class UseWorkflow(tk.Frame):
             path = APP_DIR / path
         return cv2.imread(str(path))
 
-    def _capture_image(self, camera_name):
-        source = CAMERA_SOURCES.get(camera_name)
+    def _capture_image(self):
+        source = CAMERA_SOURCES.get(self.camera_name)
         if source is None:
             return None
         cap = cv2.VideoCapture(source)
@@ -196,8 +240,8 @@ class UseWorkflow(tk.Frame):
         return frame
 
     def render(self):
+        self.canvas.delete("all")
         if self.image is None:
-            self.canvas.delete("all")
             self.canvas.create_text(
                 max(1, self.canvas.winfo_width() // 2),
                 max(1, self.canvas.winfo_height() // 2),
@@ -221,16 +265,12 @@ class UseWorkflow(tk.Frame):
         display = cv2.resize(self.image, (render_w, render_h), interpolation=cv2.INTER_AREA)
         rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
         self.photo = ImageTk.PhotoImage(Image.fromarray(rgb))
-        self.canvas.delete("all")
         self.canvas.create_image(self.offset_x, self.offset_y, image=self.photo, anchor="nw")
         self._draw_loading_overlay()
         self._draw_alert_overlay()
 
     def _set_busy(self, busy, message=None):
-        self._busy = busy
-        state = "disabled" if busy else "normal"
-        for button in self.action_buttons:
-            button.configure(state=state)
+        self.is_busy = busy
         if message:
             self.status_var.set(message)
         self.render()
@@ -251,17 +291,14 @@ class UseWorkflow(tk.Frame):
         self.render()
 
     def _start_drag(self, event):
-        if self._busy:
+        if self.is_busy:
             return
         self._drag_start = (event.x, event.y, self.pan_screen_x, self.pan_screen_y)
-        self._drag_moved = False
 
     def _drag_view(self, event):
         if self._drag_start is None:
             return
         start_x, start_y, start_pan_x, start_pan_y = self._drag_start
-        if abs(event.x - start_x) > 3 or abs(event.y - start_y) > 3:
-            self._drag_moved = True
         self.pan_screen_x = start_pan_x + event.x - start_x
         self.pan_screen_y = start_pan_y + event.y - start_y
         self.render()
@@ -283,20 +320,20 @@ class UseWorkflow(tk.Frame):
         self.render()
 
     def _draw_loading_overlay(self):
-        if not self._busy:
+        if not self.is_busy:
             return
         canvas_w = max(1, self.canvas.winfo_width())
         canvas_h = max(1, self.canvas.winfo_height())
-        box_w = min(360, canvas_w - 40)
-        box_h = 86
+        box_w = min(280, canvas_w - 30)
+        box_h = 82
         x1 = (canvas_w - box_w) // 2
         y1 = (canvas_h - box_h) // 2
         self.canvas.create_rectangle(x1, y1, x1 + box_w, y1 + box_h, fill="#ffffff", outline="#d1d5db", width=2)
-        self.canvas.create_text(canvas_w // 2, y1 + 32, text="Please wait", fill="#111827", font=("Helvetica", 16, "bold"))
-        self.canvas.create_text(canvas_w // 2, y1 + 58, text=self.status_var.get(), fill="#4b5563", font=("Helvetica", 11))
+        self.canvas.create_text(canvas_w // 2, y1 + 30, text="Please wait", fill="#111827", font=("Helvetica", 15, "bold"))
+        self.canvas.create_text(canvas_w // 2, y1 + 56, text=self.status_var.get(), fill="#4b5563", font=("Helvetica", 10))
 
     def _draw_alert_overlay(self):
-        if not self._alert or self._busy:
+        if not self._alert or self.is_busy:
             return
         message, level = self._alert
         colors = {
@@ -306,17 +343,17 @@ class UseWorkflow(tk.Frame):
         }
         fill, text_color, outline = colors.get(level, colors["warning"])
         canvas_w = max(1, self.canvas.winfo_width())
-        box_w = min(520, canvas_w - 40)
-        box_h = 58
+        box_w = min(380, canvas_w - 30)
+        box_h = 56
         x1 = (canvas_w - box_w) // 2
-        y1 = 18
+        y1 = 16
         self.canvas.create_rectangle(x1, y1, x1 + box_w, y1 + box_h, fill=fill, outline=outline, width=2)
         self.canvas.create_text(
-            x1 + 18,
+            x1 + 16,
             y1 + box_h // 2,
             text=message,
             fill=text_color,
             anchor="w",
-            font=("Helvetica", 12, "bold"),
-            width=box_w - 36,
+            font=("Helvetica", 11, "bold"),
+            width=box_w - 32,
         )

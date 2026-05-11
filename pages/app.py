@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import messagebox
 
 from pages.config import PIN_APP_PATH
-from pages.home_page import HomePage
 from pages.runner import ProcessRunner
 from pages.setup_page import SetupPage
 from pages.use_page import UsePage
@@ -12,21 +11,29 @@ class PinInspectionUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("PIN Inspection")
-        self.geometry("980x640")
         self.minsize(860, 560)
         self.configure(bg="#f7f8fa")
+        self._open_centered_large()
 
         self.runner = ProcessRunner(self.append_log, self.on_process_done)
         self.active_page = None
 
         self._build_shell()
         self.pages = {
-            "home": HomePage(self.content, self),
-            "setup": SetupPage(self.content, self),
             "use": UsePage(self.content, self),
+            "setup": SetupPage(self.content, self),
         }
-        self.show_page("home")
+        self.show_page("use")
         self.after(120, self._poll_runner)
+
+    def _open_centered_large(self):
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        width = max(980, int(screen_w * 0.94))
+        height = max(640, int(screen_h * 0.90))
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _build_shell(self):
         self.columnconfigure(1, weight=1)
@@ -55,9 +62,8 @@ class PinInspectionUI(tk.Tk):
 
         self.nav_buttons = {}
         for key, label in (
-            ("home", "Dashboard"),
-            ("setup", "Setup Mode"),
             ("use", "Use Mode"),
+            ("setup", "Setup Mode"),
         ):
             button = tk.Button(
                 sidebar,
@@ -80,7 +86,7 @@ class PinInspectionUI(tk.Tk):
 
         tk.Label(
             sidebar,
-            text="Setup runs inside this UI.\nUse mode may open result windows.",
+            text="Use Mode is the main screen.\nSetup Mode configures cameras.",
             bg="#ffffff",
             fg="#6b7280",
             justify="left",
