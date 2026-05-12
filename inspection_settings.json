@@ -96,5 +96,15 @@
       ],
       "read_qr": false
     }
+  },
+  "remote_io": {
+    "enabled": true,
+    "host": "192.168.11.45",
+    "port": 502,
+    "unit_id": 1,
+    "timeout_ms": 1000,
+    "di0_address": 0,
+    "do_pass_address": 16,
+    "do_fail_address": 17
   }
 }
