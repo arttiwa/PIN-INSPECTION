@@ -14,6 +14,7 @@ class PinInspectionUI(tk.Tk):
         self.minsize(860, 560)
         self.configure(bg="#f7f8fa")
         self._open_centered_large()
+        self.resizable(False, False)
 
         self.runner = ProcessRunner(self.append_log, self.on_process_done)
         self.active_page = None
@@ -29,8 +30,8 @@ class PinInspectionUI(tk.Tk):
     def _open_centered_large(self):
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
-        width = max(980, int(screen_w * 0.94))
-        height = max(640, int(screen_h * 0.90))
+        width = min(screen_w, max(980, int(screen_w * 0.90)))
+        height = min(screen_h, max(640, int(screen_h * 0.90)))
         x = max(0, (screen_w - width) // 2)
         y = max(0, (screen_h - height) // 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
