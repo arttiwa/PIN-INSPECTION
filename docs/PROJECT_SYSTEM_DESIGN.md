@@ -155,16 +155,22 @@ Result images:
 result/
 ```
 
-Use Mode saves result images with names like:
+Use Mode creates one session folder per day. Each camera record contains the raw image, annotated result, and JSON metadata:
 
 ```text
-cam0_result_YYYYMMDD_HHMMSS.jpg
-cam1_result_YYYYMMDD_HHMMSS.jpg
+result/
+  session_YYYY-MM-DD/
+    run_YYYYMMDD_HHMMSS_mmm_cam0_raw.jpg
+    run_YYYYMMDD_HHMMSS_mmm_cam0_result.jpg
+    run_YYYYMMDD_HHMMSS_mmm_cam0.json
 ```
 
 Retention:
 
-- Use Mode deletes old result images after 7 days.
+- Records older than 15 days are deleted.
+- Total result storage is limited to 1 GB.
+- When the limit is exceeded, the oldest complete record is deleted first.
+- Saving and cleanup run in the inspection worker thread so the UI remains responsive.
 
 Remote I/O outputs:
 
@@ -190,4 +196,3 @@ Remote I/O outputs:
 | QR enabled on camera without code | Slower run and warning `NOT FOUND`. | Disable QR per camera if not required. |
 | Remote I/O address mismatch | Wrong trigger/output behavior. | Verify DI0/DO16/DO17 addresses with the device manual and Test TCP. |
 | Lighting changes | False pin fail/pass due brightness thresholds. | Recalibrate brightness ranges under production lighting. |
-

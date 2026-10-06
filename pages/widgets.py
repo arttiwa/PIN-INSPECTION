@@ -125,7 +125,7 @@ def secondary_button(parent, text, command):
         parent,
         text=text,
         command=command,
-        bg="#d52424",
+        bg="#e46e1f",
         fg="#ffffff",
         activebackground="#7f1d1d",
         activeforeground="#ffffff",

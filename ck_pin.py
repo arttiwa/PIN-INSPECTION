@@ -4,6 +4,17 @@ from dataclasses import dataclass
 from typing import List, Tuple, Optional
 import datetime
 
+
+RESULT_CIRCLE_SCALE = 1.2
+RESULT_CIRCLE_PADDING = 16
+RESULT_SUMMARY_TEXT_SCALE = 3.0
+RESULT_REFERENCE_TEXT_SCALE = 1.8
+RESULT_DETAIL_TEXT_SCALE = 1.35
+RESULT_PIN_ID_TEXT_SCALE = 1.35
+RESULT_TEXT_BACKGROUND_OPACITY = 0.58
+RESULT_TEXT_BACKGROUND_PADDING = 8
+
+
 @dataclass
 class PinResult:
     hole_id: int
@@ -12,7 +23,44 @@ class PinResult:
     actual_position: Optional[Tuple[int, int]] = None
     actual_radius: int = 0
     distance_from_expected: float = 0.0
-    brightness: float = 0.0          # เพิ่ม field นี้
+    brightness: float = 0.0
+    brightness_min: Optional[int] = None
+    brightness_max: Optional[int] = None
+    failure_reason: str = ""
+
+
+def draw_text_with_background(
+    image,
+    text,
+    origin,
+    font_scale,
+    color,
+    thickness,
+    background_opacity=RESULT_TEXT_BACKGROUND_OPACITY,
+    padding=RESULT_TEXT_BACKGROUND_PADDING,
+):
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+    x, y = int(origin[0]), int(origin[1])
+    image_height, image_width = image.shape[:2]
+    x1 = max(0, x - padding)
+    y1 = max(0, y - text_height - padding)
+    x2 = min(image_width, x + text_width + padding)
+    y2 = min(image_height, y + baseline + padding)
+
+    if x2 > x1 and y2 > y1:
+        roi = image[y1:y2, x1:x2]
+        white = np.full_like(roi, 255)
+        cv2.addWeighted(
+            white,
+            background_opacity,
+            roi,
+            1.0 - background_opacity,
+            0,
+            dst=roi,
+        )
+
+    cv2.putText(image, text, (x, y), font, font_scale, color, thickness)
     
 def find_all_circles(img, min_radius=15, max_radius=80):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -115,49 +163,103 @@ def draw_results(img, results, ref_hole, offset):
 
     if ref_hole:
         rx, ry, rr = ref_hole
-        cv2.circle(output, (rx, ry), rr, (255, 200, 0), 3)
-        cv2.putText(output, f"REF offset({dx:+d},{dy:+d})",
-                    (rx + rr + 5, ry), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6, (255, 200, 0), 2)
+        display_radius = max(rr + RESULT_CIRCLE_PADDING, int(rr * RESULT_CIRCLE_SCALE))
+        cv2.circle(output, (rx, ry), display_radius, (255, 200, 0), 9)
 
     for r in results:
         ex, ey = r.expected_position
 
         if r.detected:
             ax, ay = r.actual_position
-            cv2.drawMarker(output, (ex, ey), (150, 150, 150), cv2.MARKER_CROSS, 20, 1)
-            cv2.circle(output, (ax, ay), r.actual_radius, (0, 200, 0), 5)  # 5 = thickness ,base 2
-            cv2.circle(output, (ax, ay), 4, (0, 200, 0), -1)
-            cv2.line(output, (ex, ey), (ax, ay), (0, 200, 0), 1)
-            cv2.putText(output, f"#{r.hole_id} OK",
-                        (ax + r.actual_radius + 3, ay),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 0), 1)
+            display_radius = max(
+                r.actual_radius + RESULT_CIRCLE_PADDING,
+                int(r.actual_radius * RESULT_CIRCLE_SCALE),
+            )
+            cv2.drawMarker(output, (ex, ey), (150, 150, 150), cv2.MARKER_CROSS, 60, 3)
+            cv2.circle(output, (ax, ay), display_radius, (0, 200, 0), 15)
+            cv2.circle(output, (ax, ay), 12, (0, 200, 0), -1)
+            cv2.line(output, (ex, ey), (ax, ay), (0, 200, 0), 3)
+            draw_text_with_background(
+                output,
+                f"#{r.hole_id}",
+                (ax + display_radius + 10, ay),
+                RESULT_PIN_ID_TEXT_SCALE,
+                (0, 200, 0),
+                3,
+            )
         else:
-            # แยกสีตามสาเหตุ: แดง = no circle, ส้ม = circle เจอแต่ brightness ผิด
             if r.actual_position:
-                # เจอ circle แต่ brightness ผิด (PCB หรือสว่างเกิน)
-                color = (0, 140, 255)  # ส้ม
+                color = (0, 0, 220)
                 ax, ay = r.actual_position
-                cv2.circle(output, (ax, ay), r.actual_radius, color, 2)
-                cv2.putText(output, f"#{r.hole_id} NO PIN",
-                            (ax + r.actual_radius + 3, ay),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                display_radius = max(
+                    r.actual_radius + RESULT_CIRCLE_PADDING,
+                    int(r.actual_radius * RESULT_CIRCLE_SCALE),
+                )
+                cv2.circle(output, (ax, ay), display_radius, color, 9)
+                draw_text_with_background(
+                    output,
+                    f"#{r.hole_id}",
+                    (ax + display_radius + 10, ay),
+                    RESULT_PIN_ID_TEXT_SCALE,
+                    color,
+                    6,
+                )
             else:
-                # ไม่เจอ circle เลย
-                color = (0, 0, 220)   # แดง
+                color = (0, 0, 220)
                 cv2.drawMarker(output, (ex, ey), color,
-                               cv2.MARKER_TILTED_CROSS, 30, 2)
-                cv2.putText(output, f"#{r.hole_id} MISSING",
-                            (ex + 18, ey + 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                               cv2.MARKER_TILTED_CROSS, 90, 6)
+                draw_text_with_background(
+                    output,
+                    f"#{r.hole_id}",
+                    (ex + 54, ey + 15),
+                    RESULT_PIN_ID_TEXT_SCALE,
+                    color,
+                    6,
+                )
 
     missing = [r for r in results if not r.detected]
     summary = f"PASS {len(results)-len(missing)}/{len(results)}"
     if missing:
         summary += f"  FAIL: {[r.hole_id for r in missing]}"
-    cv2.putText(output, summary, (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0,
-                (0, 200, 0) if not missing else (0, 0, 220), 2)
+    draw_text_with_background(
+        output,
+        summary,
+        (20, 100),
+        RESULT_SUMMARY_TEXT_SCALE,
+        (0, 200, 0) if not missing else (0, 0, 220),
+        6,
+    )
+
+    if ref_hole:
+        draw_text_with_background(
+            output,
+            f"REF OFFSET X={dx:+d} Y={dy:+d}",
+            (20, 190),
+            RESULT_REFERENCE_TEXT_SCALE,
+            (255, 200, 0),
+            6,
+        )
+
+    for index, result in enumerate(results):
+        range_text = ""
+        if result.brightness_min is not None and result.brightness_max is not None:
+            range_text = f" RANGE={result.brightness_min}-{result.brightness_max}"
+        if result.actual_position:
+            label = (
+                f"#{result.hole_id} {'PASS' if result.detected else 'FAIL'} "
+                f"B={result.brightness:.0f}{range_text}"
+            )
+        else:
+            label = f"#{result.hole_id} FAIL NO CIRCLE{range_text}"
+        color = (0, 200, 0) if result.detected else (0, 0, 220)
+        draw_text_with_background(
+            output,
+            label,
+            (20, 280 + index * 80),
+            RESULT_DETAIL_TEXT_SCALE,
+            color,
+            4,
+        )
 
     return output
 

@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox
 
-from pages.config import PIN_APP_PATH
+from pages.config import APP_DIR, PIN_APP_PATH
 from pages.runner import ProcessRunner
 from pages.setup_page import SetupPage
 from pages.use_page import UsePage
@@ -11,6 +11,7 @@ class PinInspectionUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("PIN Inspection")
+        self._set_window_icon()
         self.minsize(860, 560)
         self.configure(bg="#f7f8fa")
         self._open_centered_large()
@@ -28,6 +29,17 @@ class PinInspectionUI(tk.Tk):
             page.grid(row=0, column=0, sticky="nsew")
         self.show_page("use")
         self.after(120, self._poll_runner)
+
+    def _set_window_icon(self):
+        icon_path = APP_DIR / "chaos-pin.png"
+        if not icon_path.is_file():
+            print(f"[UI WARN] App icon not found: {icon_path}", flush=True)
+            return
+        try:
+            self._app_icon = tk.PhotoImage(file=str(icon_path))
+            self.iconphoto(True, self._app_icon)
+        except tk.TclError as exc:
+            print(f"[UI WARN] Cannot load app icon {icon_path}: {exc}", flush=True)
 
     def _open_centered_large(self):
         screen_w = self.winfo_screenwidth()

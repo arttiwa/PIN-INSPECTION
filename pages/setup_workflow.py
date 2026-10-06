@@ -5,6 +5,7 @@ from pathlib import Path
 import cv2
 from PIL import Image, ImageTk
 
+from ck_pin import get_circle_brightness
 from pages.config import APP_DIR, load_config, save_config
 from pages.inspection_logic import inspect_image_with_pin_conditions
 from pages.widgets import primary_button, secondary_button, success_button
@@ -50,7 +51,7 @@ class SetupWorkflow(tk.Frame):
 
         self.camera_var = tk.StringVar(value=next(iter(CAMERA_SOURCES), "cam0"))
         self.empty_message = "No image for now. Please click Recapture for the setup image."
-        self.read_qr_var = tk.BooleanVar(value=True)
+        self.read_qr_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Ready.")
         self.setting_vars = {
             key: tk.StringVar(value=str(value))
@@ -72,35 +73,45 @@ class SetupWorkflow(tk.Frame):
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
 
-        toolbar = tk.Frame(self, bg="#ffffff")
-        toolbar.grid(row=0, column=0, sticky="ew", padx=20, pady=20)
-        toolbar.columnconfigure(12, weight=1)
+        controls = tk.Frame(self, bg="#ffffff")
+        controls.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 12))
+        controls.columnconfigure(0, weight=1)
+
+        settings_row = tk.Frame(controls, bg="#ffffff")
+        settings_row.grid(row=0, column=0, sticky="ew")
 
         tk.Label(
-            toolbar,
+            settings_row,
             text="Camera",
             bg="#ffffff",
             fg="#374151",
             font=("Helvetica", 11, "bold"),
         ).grid(row=0, column=0, sticky="w", padx=(0, 8))
 
-        camera_menu = tk.OptionMenu(
-            toolbar,
-            self.camera_var,
-            *CAMERA_SOURCES.keys(),
-            command=lambda _value: self.load_camera_image(),
-        )
-        camera_menu.configure(
-            bg="#f9fafb",
-            fg="#111827",
-            activebackground="#eef2ff",
-            activeforeground="#1d4ed8",
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground="#d1d5db",
-            font=("Helvetica", 11),
-        )
-        camera_menu.grid(row=0, column=1, sticky="w", padx=(0, 16))
+        camera_group = tk.Frame(settings_row, bg="#ffffff")
+        camera_group.grid(row=0, column=1, sticky="w", padx=(0, 16))
+        self.camera_buttons = []
+        for column, camera_name in enumerate(CAMERA_SOURCES):
+            button = tk.Radiobutton(
+                camera_group,
+                text=camera_name.upper(),
+                variable=self.camera_var,
+                value=camera_name,
+                command=self.load_camera_image,
+                indicatoron=False,
+                bg="#f3f4f6",
+                fg="#374151",
+                activebackground="#dbeafe",
+                activeforeground="#1d4ed8",
+                selectcolor="#bfdbfe",
+                relief="flat",
+                bd=0,
+                padx=14,
+                pady=8,
+                font=("Helvetica", 11, "bold"),
+            )
+            button.grid(row=0, column=column, padx=(0, 4))
+            self.camera_buttons.append(button)
 
         for index, (key, label) in enumerate(
             (
@@ -112,14 +123,14 @@ class SetupWorkflow(tk.Frame):
             start=2,
         ):
             tk.Label(
-                toolbar,
+                settings_row,
                 text=label,
                 bg="#ffffff",
                 fg="#374151",
                 font=("Helvetica", 10, "bold"),
             ).grid(row=0, column=index * 2 - 2, sticky="e", padx=(0, 6))
             entry = tk.Entry(
-                toolbar,
+                settings_row,
                 textvariable=self.setting_vars[key],
                 width=6,
                 bg="#ffffff",
@@ -131,53 +142,57 @@ class SetupWorkflow(tk.Frame):
             )
             entry.grid(row=0, column=index * 2 - 1, sticky="w", padx=(0, 12))
 
-        self.action_buttons = []
-        self.process_button = primary_button(toolbar, "Process", self.process_circles)
-        self.process_button.grid(row=0, column=10, padx=(4, 8))
-        self.action_buttons.append(self.process_button)
-
-        self.clear_button = secondary_button(toolbar, "Clear", self.clear_selection)
-        self.clear_button.grid(row=0, column=11, padx=(0, 8))
-        self.action_buttons.append(self.clear_button)
-
-        self.save_button = success_button(toolbar, "Save Setup", self.save_setup)
-        self.save_button.grid(row=0, column=12, sticky="e")
-        self.action_buttons.append(self.save_button)
-
-        options = tk.Frame(self, bg="#ffffff")
-        options.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 16))
-        options.columnconfigure(2, weight=1)
-
-        tk.Checkbutton(
-            options,
-            text="Read QR/Data Matrix for this camera",
+        qr_checkbox = tk.Checkbutton(
+            settings_row,
+            text="Read QR/Data Matrix",
             variable=self.read_qr_var,
+            onvalue=True,
+            offvalue=False,
             bg="#ffffff",
             fg="#111827",
             activebackground="#ffffff",
             activeforeground="#111827",
             selectcolor="#ffffff",
-            font=("Helvetica", 11),
-        ).grid(row=0, column=0, sticky="w")
+            font=("Helvetica", 10),
+            padx=4,
+            pady=6,
+        )
+        qr_checkbox.grid(row=0, column=10, sticky="w", padx=(4, 0))
+        self.qr_buttons = [qr_checkbox]
+
+        actions_row = tk.Frame(controls, bg="#ffffff")
+        actions_row.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        actions_row.columnconfigure(4, weight=1)
+
+        self.action_buttons = []
+        self.recapture_button = secondary_button(actions_row, "1 Recapture", self.recapture_camera_image)
+        self.recapture_button.grid(row=0, column=0, padx=(0, 8))
+        self.action_buttons.append(self.recapture_button)
+
+        self.process_button = primary_button(actions_row, "2 Process", self.process_circles)
+        self.process_button.grid(row=0, column=1, padx=(0, 8))
+        self.action_buttons.append(self.process_button)
+
+        self.condition_button = primary_button(actions_row, "3 Pin Conditions", self.open_condition_popup)
+        self.condition_button.grid(row=0, column=2, padx=(0, 8))
+        self.action_buttons.append(self.condition_button)
+
+        self.clear_button = secondary_button(actions_row, "Clear", self.clear_selection)
+        self.clear_button.grid(row=0, column=3, padx=(0, 12))
+        self.action_buttons.append(self.clear_button)
 
         tk.Label(
-            options,
+            actions_row,
             textvariable=self.status_var,
             bg="#ffffff",
             fg="#4b5563",
-            font=("Helvetica", 11),
-        ).grid(row=0, column=1, sticky="w", padx=(20, 0))
+            font=("Helvetica", 10),
+            anchor="e",
+        ).grid(row=0, column=4, sticky="ew", padx=(0, 12))
 
-        option_buttons = tk.Frame(options, bg="#ffffff")
-        option_buttons.grid(row=0, column=2, sticky="e")
-
-        self.condition_button = primary_button(option_buttons, "Pin Conditions", self.open_condition_popup)
-        self.condition_button.grid(row=0, column=0, padx=(0, 8))
-        self.action_buttons.append(self.condition_button)
-
-        self.recapture_button = secondary_button(option_buttons, "Recapture", self.recapture_camera_image)
-        self.recapture_button.grid(row=0, column=1)
-        self.action_buttons.append(self.recapture_button)
+        self.save_button = success_button(actions_row, "4 Save Setup", self.save_setup)
+        self.save_button.grid(row=0, column=5, sticky="e")
+        self.action_buttons.append(self.save_button)
 
         self.canvas = tk.Canvas(
             self,
@@ -255,7 +270,7 @@ class SetupWorkflow(tk.Frame):
                 self.setting_vars[key].set(str(value))
             for key, value in DEFAULT_INSPECTION.items():
                 self.inspection_vars[key].set(str(value))
-            self.read_qr_var.set(True)
+            self.read_qr_var.set(False)
             self.selected_ids = []
             self.circle_conditions = {}
             return
@@ -266,7 +281,7 @@ class SetupWorkflow(tk.Frame):
         for key, value in camera_config.get("inspection", DEFAULT_INSPECTION).items():
             if key in self.inspection_vars:
                 self.inspection_vars[key].set(str(value))
-        self.read_qr_var.set(bool(camera_config.get("read_qr", True)))
+        self.read_qr_var.set(bool(camera_config.get("read_qr", False)))
         self.selected_ids = self._configured_selected_ids(camera_name)
         self.circle_conditions = {}
         pin_conditions = camera_config.get("pin_conditions", [])
@@ -416,15 +431,17 @@ class SetupWorkflow(tk.Frame):
             ).grid(row=2, column=column, sticky="w", pady=(0, 8), padx=(0, 12))
 
         row_vars = {}
+        brightness_vars = {}
         for row, circle_id in enumerate(self.selected_ids, start=3):
             condition = self._condition_for_circle(circle_id)
             row_vars[circle_id] = {
                 key: tk.StringVar(value=str(condition[key]))
                 for key in ("search_radius", "brightness_min", "brightness_max")
             }
+            brightness_vars[circle_id] = tk.StringVar(value=f"#{circle_id}  AVG: Not tested")
             tk.Label(
                 frame,
-                text=f"#{circle_id}",
+                textvariable=brightness_vars[circle_id],
                 bg="#ffffff",
                 fg="#111827",
                 font=("Helvetica", 12, "bold"),
@@ -442,6 +459,46 @@ class SetupWorkflow(tk.Frame):
                     justify="center",
                     font=("Helvetica", 12),
                 ).grid(row=row, column=column, sticky="w", pady=6, padx=(0, 12))
+
+        def brightness_done(values, error):
+            if not popup.winfo_exists():
+                return
+            test_brightness_button.configure(state="normal", text="Test Brightness")
+            if error is not None:
+                self.show_alert(f"Brightness test failed: {error}", "error")
+                return
+            for circle_id, value in values.items():
+                if circle_id in brightness_vars:
+                    brightness_vars[circle_id].set(f"#{circle_id}  AVG: {value:.0f}")
+
+        def brightness_worker(image, selected_circles):
+            try:
+                values = {
+                    circle_id: get_circle_brightness(image, (circle[0], circle[1]), circle[2])
+                    for circle_id, circle in selected_circles.items()
+                }
+                self.after(0, lambda: brightness_done(values, None))
+            except Exception as exc:
+                self.after(0, lambda error=exc: brightness_done({}, error))
+
+        def test_brightness():
+            if self.image is None:
+                self.show_alert("No setup image available for brightness test.", "warning")
+                return
+            selected_circles = {
+                circle_id: self.circles[circle_id]
+                for circle_id in self.selected_ids
+                if 0 <= circle_id < len(self.circles)
+            }
+            if len(selected_circles) != len(self.selected_ids):
+                self.show_alert("Please run Process again before testing brightness.", "warning")
+                return
+            test_brightness_button.configure(state="disabled", text="Calculating...")
+            threading.Thread(
+                target=brightness_worker,
+                args=(self.image.copy(), selected_circles),
+                daemon=True,
+            ).start()
 
         def apply_condition():
             try:
@@ -473,8 +530,10 @@ class SetupWorkflow(tk.Frame):
 
         buttons = tk.Frame(frame, bg="#ffffff")
         buttons.grid(row=3 + len(self.selected_ids), column=0, columnspan=4, sticky="e", pady=(18, 0))
-        secondary_button(buttons, "Cancel", popup.destroy).grid(row=0, column=0, padx=(0, 8))
-        success_button(buttons, "Save", apply_condition).grid(row=0, column=1)
+        test_brightness_button = primary_button(buttons, "Test Brightness", test_brightness)
+        test_brightness_button.grid(row=0, column=0, padx=(0, 18))
+        secondary_button(buttons, "Cancel", popup.destroy).grid(row=0, column=1, padx=(0, 8))
+        success_button(buttons, "Save", apply_condition).grid(row=0, column=2)
         popup.update_idletasks()
         parent_root = self.winfo_toplevel()
         x = parent_root.winfo_rootx() + (parent_root.winfo_width() - popup.winfo_width()) // 2
@@ -812,6 +871,8 @@ class SetupWorkflow(tk.Frame):
         self._busy = busy
         state = "disabled" if busy else "normal"
         for button in self.action_buttons:
+            button.configure(state=state)
+        for button in self.camera_buttons + self.qr_buttons:
             button.configure(state=state)
         if message:
             self.status_var.set(message)

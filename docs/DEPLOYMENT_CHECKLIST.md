@@ -93,8 +93,11 @@ System mode: rasp
 - [ ] Confirm saved images appear in:
 
 ```text
-result/
+result/session_YYYY-MM-DD/
 ```
+
+- [ ] Confirm each camera record contains raw image, result image, and JSON metadata.
+- [ ] Confirm the result directory stays within the 1 GB / 15-day retention policy.
 
 - [ ] Confirm expected PASS/FAIL behavior with good and bad parts.
 

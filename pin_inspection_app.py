@@ -14,6 +14,7 @@ import numpy as np
 from ck_pin import (
     PinResult,
     draw_results,
+    draw_text_with_background,
     find_circle_near,
     find_reference_hole,
     get_circle_brightness,
@@ -497,7 +498,14 @@ def inspect_image(img: np.ndarray, camera_config: Dict) -> Tuple[np.ndarray, Lis
     )
     if ref_hole is None:
         output = img.copy()
-        cv2.putText(output, "FAIL: reference circle not found", (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 220), 3)
+        draw_text_with_background(
+            output,
+            "FAIL: reference circle not found",
+            (20, 100),
+            3.0,
+            (0, 0, 220),
+            9,
+        )
         return output, [], False
 
     dx = ref_hole[0] - template_ref_pos[0]
@@ -547,19 +555,33 @@ def inspect_image(img: np.ndarray, camera_config: Dict) -> Tuple[np.ndarray, Lis
 def draw_code_results(img: np.ndarray, codes: List[Dict]) -> np.ndarray:
     output = img.copy()
     if not codes:
-        cv2.putText(output, "CODE NOT FOUND", (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 220), 3)
+        draw_text_with_background(
+            output,
+            "CODE NOT FOUND",
+            (20, 330),
+            3.0,
+            (0, 0, 220),
+            9,
+        )
         return output
 
     for code in codes:
         points = code.get("points")
         if points:
             pts = np.array(points, dtype=np.int32)
-            cv2.polylines(output, [pts], True, (0, 0, 255), 4)
+            cv2.polylines(output, [pts], True, (0, 0, 255), 12)
             x, y = pts[:, 0].min(), pts[:, 1].max()
         else:
             x, y = 20, 80
         label = f"{code.get('format', 'Code')}: {code['data']}"
-        cv2.putText(output, label, (int(x), int(y) + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 3)
+        draw_text_with_background(
+            output,
+            label,
+            (int(x), int(y) + 105),
+            2.4,
+            (0, 0, 255),
+            9,
+        )
     return output
 
 
@@ -666,7 +688,21 @@ def run_use() -> None:
                 print(f"[QR] {camera_name}: NOT FOUND")
 
         status = "PASS" if pin_passed else "FAIL"
-        cv2.putText(result_img, f"{camera_name} {status} {code_text}", (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 0) if pin_passed else (0, 0, 220), 3)
+        status_label = f"{camera_name} {status}"
+        (status_width, _status_height), _baseline = cv2.getTextSize(
+            status_label,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            2.7,
+            9,
+        )
+        draw_text_with_background(
+            result_img,
+            status_label,
+            (max(20, result_img.shape[1] - status_width - 20), 100),
+            2.7,
+            (0, 200, 0) if pin_passed else (0, 0, 220),
+            9,
+        )
         path = save_result_image(camera_name, result_img, "result")
         print(f"[RESULT] {camera_name}: pin={status} code={code_text} image={path}")
         show_image(f"result {camera_name}", result_img)

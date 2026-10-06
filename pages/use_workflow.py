@@ -1,15 +1,17 @@
 import threading
 import tkinter as tk
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import cv2
 from PIL import Image, ImageTk
 
+from ck_pin import draw_text_with_background
 from pages.config import APP_DIR, load_config
 from pages.inspection_logic import inspect_image_with_pin_conditions
 from pages.remote_io import RemoteIOClient
+from pages.result_storage import save_inspection_record
 from pages.widgets import primary_button
 from pin_inspection_app import (
     CAMERA_SOURCES,
@@ -22,37 +24,24 @@ from pin_inspection_app import (
 from read_qr_code import read_codes_from_image
 
 
-RESULT_DIR = APP_DIR / "result"
-RESULT_RETENTION_DAYS = 7
-
-
 def debug_log(message):
     timestamp = datetime.now().strftime("%H:%M:%S")
     print(f"[USE DEBUG {timestamp}] {message}", flush=True)
 
 
-def save_result_image_to_result_folder(camera_name, image):
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    cleanup_old_result_images()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = RESULT_DIR / f"{camera_name}_result_{timestamp}.jpg"
-    cv2.imwrite(str(path), image)
-    return str(path)
-
-
-def cleanup_old_result_images():
-    if not RESULT_DIR.exists():
-        return
-    cutoff = datetime.now() - timedelta(days=RESULT_RETENTION_DAYS)
-    for path in RESULT_DIR.iterdir():
-        if not path.is_file():
-            continue
-        if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".bmp"}:
-            continue
-        modified_at = datetime.fromtimestamp(path.stat().st_mtime)
-        if modified_at < cutoff:
-            debug_log(f"Delete old result image: {path}")
-            path.unlink(missing_ok=True)
+def pin_result_text(result):
+    accepted_range = f"{result.brightness_min}-{result.brightness_max}"
+    if not result.actual_position:
+        return f"Pin #{result.hole_id} FAIL: circle not found, accepted range = {accepted_range}"
+    if result.detected:
+        return (
+            f"Pin #{result.hole_id} PASS: brightness = {result.brightness:.0f}, "
+            f"accepted range = {accepted_range}"
+        )
+    return (
+        f"Pin #{result.hole_id} FAIL: brightness = {result.brightness:.0f}, "
+        f"accepted range = {accepted_range} (outside accepted range)"
+    )
 
 
 class UseWorkflow(tk.Frame):
@@ -65,12 +54,14 @@ class UseWorkflow(tk.Frame):
         self.pending_panels = 0
         self.run_queue = []
         self.run_mode = None
+        self.current_run_id = None
         self.auto_enabled = False
         self.auto_reading = False
         self.last_di0 = False
         self.manual_button = None
         self.auto_button = None
         self.config_button = None
+        self.overall_status_label = None
         self._build_layout()
 
     def refresh(self):
@@ -116,13 +107,17 @@ class UseWorkflow(tk.Frame):
         self.action_buttons.append(self.auto_button)
         self.action_buttons.append(self.config_button)
 
-        tk.Label(
+        self.overall_status_label = tk.Label(
             toolbar,
             textvariable=self.status_var,
             bg="#ffffff",
             fg="#4b5563",
-            font=("Helvetica", 11),
-        ).grid(row=0, column=3, sticky="e")
+            font=("Helvetica", 11, "bold"),
+            padx=12,
+            pady=8,
+            anchor="e",
+        )
+        self.overall_status_label.grid(row=0, column=3, sticky="e")
 
         content = tk.Frame(self, bg="#ffffff")
         content.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 20))
@@ -221,7 +216,9 @@ class UseWorkflow(tk.Frame):
             debug_log(f"{mode} run ignored because a panel is busy.")
             return
         self.run_mode = mode
+        self.current_run_id = datetime.now().strftime("run_%Y%m%d_%H%M%S_%f")[:-3]
         self.status_var.set("Running inspection for cam0 and cam1...")
+        self._set_overall_state("running")
         self.run_queue = list(self.panels.values())
         self.pending_panels = len(self.run_queue)
         debug_log(f"Inspection started. mode={mode} cameras={list(self.panels.keys())}")
@@ -234,7 +231,7 @@ class UseWorkflow(tk.Frame):
         panel = self.run_queue.pop(0)
         self.status_var.set(f"Running inspection for {panel.camera_name}...")
         debug_log(f"Start panel inspection: {panel.camera_name}")
-        panel.run_inspection()
+        panel.run_inspection(self.current_run_id)
 
     def _panel_finished(self, panel):
         debug_log(
@@ -250,6 +247,7 @@ class UseWorkflow(tk.Frame):
         passed = all(panel.last_status == "PASS" for panel in self.panels.values())
         debug_log(f"All panels finished. final_result={'PASS' if passed else 'FAIL'}")
         self.status_var.set("Inspection finished. Sending Remote I/O result...")
+        self._set_overall_state("pass" if passed else "fail")
         self._send_final_result(passed)
 
     def _send_final_result(self, passed):
@@ -283,20 +281,21 @@ class UseWorkflow(tk.Frame):
 
     def _finish_run(self, passed, remote_error):
         if passed:
-            message = "OK: both cameras found pins."
+            message = "OVERALL PASS: both cameras passed."
             level = "info"
         else:
-            message = "FAIL: pin not found on one or both cameras."
+            message = "OVERALL FAIL: one or both cameras failed."
             level = "error"
 
         if remote_error:
             message = f"{message} Remote I/O error: {remote_error}"
             level = "warning"
 
-        self._show_global_alert(message, level)
         self.status_var.set(message)
+        self._set_overall_state("warning" if remote_error else ("pass" if passed else "fail"))
         debug_log(f"Run finished. message={message}")
         self.run_mode = None
+        self.current_run_id = None
         if self.auto_enabled:
             self._apply_auto_buttons()
             self.after(300, self._poll_auto_input)
@@ -328,6 +327,17 @@ class UseWorkflow(tk.Frame):
         for panel in self.panels.values():
             panel.show_alert(message, level)
 
+    def _set_overall_state(self, state):
+        colors = {
+            "pass": ("#dcfce7", "#166534"),
+            "fail": ("#fee2e2", "#b91c1c"),
+            "warning": ("#fef3c7", "#92400e"),
+            "running": ("#dbeafe", "#1d4ed8"),
+            "idle": ("#ffffff", "#4b5563"),
+        }
+        bg, fg = colors.get(state, colors["idle"])
+        self.overall_status_label.configure(bg=bg, fg=fg)
+
 
 class CameraResultPanel(tk.Frame):
     def __init__(self, parent, camera_name, on_finished):
@@ -352,33 +362,57 @@ class CameraResultPanel(tk.Frame):
         self.last_code_text = ""
         self.last_output_path = ""
         self.last_error = None
+        self.last_results = []
         self.status_var = tk.StringVar(value="Waiting.")
+        self.detail_var = tk.StringVar(value="No inspection result yet.")
+        self.header = None
+        self.camera_label = None
+        self.status_label = None
+        self.detail_label = None
 
         self._build_layout()
 
     def _build_layout(self):
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
         self.columnconfigure(0, weight=1)
 
-        header = tk.Frame(self, bg="#ffffff")
-        header.grid(row=0, column=0, sticky="ew", padx=14, pady=12)
-        header.columnconfigure(1, weight=1)
+        self.header = tk.Frame(self, bg="#ffffff")
+        self.header.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        self.header.columnconfigure(1, weight=1)
 
-        tk.Label(
-            header,
+        self.camera_label = tk.Label(
+            self.header,
             text=self.camera_name,
             bg="#ffffff",
             fg="#111827",
             font=("Helvetica", 15, "bold"),
-        ).grid(row=0, column=0, sticky="w")
+        )
+        self.camera_label.grid(row=0, column=0, sticky="w")
 
-        tk.Label(
-            header,
+        self.status_label = tk.Label(
+            self.header,
             textvariable=self.status_var,
             bg="#ffffff",
             fg="#4b5563",
+            font=("Helvetica", 12, "bold"),
+            padx=10,
+            pady=5,
+        )
+        self.status_label.grid(row=0, column=1, sticky="e")
+
+        self.detail_label = tk.Label(
+            self,
+            textvariable=self.detail_var,
+            bg="#f9fafb",
+            fg="#374151",
             font=("Helvetica", 10),
-        ).grid(row=0, column=1, sticky="e")
+            justify="left",
+            anchor="w",
+            padx=12,
+            pady=8,
+            wraplength=520,
+        )
+        self.detail_label.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 8))
 
         self.canvas = tk.Canvas(
             self,
@@ -387,7 +421,7 @@ class CameraResultPanel(tk.Frame):
             highlightthickness=1,
             cursor="fleur",
         )
-        self.canvas.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
+        self.canvas.grid(row=2, column=0, sticky="nsew", padx=14, pady=(0, 14))
         self.canvas.bind("<Configure>", lambda _event: self.schedule_render(80))
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Button-4>", self._on_mousewheel)
@@ -396,16 +430,22 @@ class CameraResultPanel(tk.Frame):
         self.canvas.bind("<B1-Motion>", self._drag_view)
         self.canvas.bind("<ButtonRelease-1>", self._end_drag)
 
-    def run_inspection(self):
+    def run_inspection(self, run_id):
         config = load_config()
         camera_config = config.get("cameras", {}).get(self.camera_name)
         self.last_status = None
         self.last_code_text = ""
         self.last_output_path = ""
         self.last_error = None
+        self.last_results = []
+        self.detail_var.set("Preparing inspection...")
+        self._set_result_state("running")
         if not camera_config:
             self.last_status = "FAIL"
             self.last_error = f"No setup config for {self.camera_name}."
+            self.status_var.set("FAIL")
+            self.detail_var.set(self.last_error)
+            self._set_result_state("fail")
             debug_log(f"{self.camera_name}: missing setup config.")
             self.show_alert(f"No setup config for {self.camera_name}.", "warning")
             self.on_finished(self)
@@ -413,7 +453,7 @@ class CameraResultPanel(tk.Frame):
 
         debug_log(
             f"{self.camera_name}: load setup. "
-            f"selected_circles={len(camera_config.get('selected_circles', []))} "
+            f"selected_circles={len(camera_config.get('selected_circle_ids', []))} "
             f"read_qr={bool(camera_config.get('read_qr'))}"
         )
         image = self._read_test_image()
@@ -425,6 +465,9 @@ class CameraResultPanel(tk.Frame):
         if image is None:
             self.last_status = "FAIL"
             self.last_error = f"Cannot load image for {self.camera_name}."
+            self.status_var.set("FAIL")
+            self.detail_var.set(self.last_error)
+            self._set_result_state("fail")
             debug_log(f"{self.camera_name}: cannot load/capture image.")
             self.show_alert(f"Cannot load image for {self.camera_name}.", "error")
             self.on_finished(self)
@@ -434,11 +477,11 @@ class CameraResultPanel(tk.Frame):
         debug_log(f"{self.camera_name}: worker thread started.")
         threading.Thread(
             target=self._inspection_worker,
-            args=(image, camera_config),
+            args=(image, camera_config, run_id),
             daemon=True,
         ).start()
 
-    def _inspection_worker(self, image, camera_config):
+    def _inspection_worker(self, image, camera_config, run_id):
         try:
             debug_log(f"{self.camera_name}: pin inspection processing.")
             result_image, _results, pin_passed = inspect_image_with_pin_conditions(image, camera_config)
@@ -462,27 +505,61 @@ class CameraResultPanel(tk.Frame):
                 debug_log(f"{self.camera_name}: QR/Data Matrix result={code_text}.")
 
             status = "PASS" if pin_passed else "FAIL"
-            cv2.putText(
-                result_image,
-                f"{self.camera_name} {status} {code_text}",
-                (20, 120),
+            status_label = f"{self.camera_name} {status}"
+            (status_width, _status_height), _baseline = cv2.getTextSize(
+                status_label,
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.9,
-                (0, 200, 0) if pin_passed else (0, 0, 220),
-                3,
+                2.7,
+                9,
             )
-            output_path = save_result_image_to_result_folder(self.camera_name, result_image)
-            debug_log(f"{self.camera_name}: result image saved at {output_path}.")
-            self.after(0, lambda: self._inspection_done(result_image, status, code_text, output_path, None))
+            draw_text_with_background(
+                result_image,
+                status_label,
+                (max(20, result_image.shape[1] - status_width - 20), 100),
+                2.7,
+                (0, 200, 0) if pin_passed else (0, 0, 220),
+                9,
+            )
+            storage_error = None
+            try:
+                output_path = save_inspection_record(
+                    self.camera_name,
+                    run_id,
+                    image,
+                    result_image,
+                    _results,
+                    status,
+                    code_text,
+                )
+                debug_log(f"{self.camera_name}: result image saved at {output_path}.")
+            except Exception as exc:
+                output_path = ""
+                storage_error = str(exc)
+                debug_log(f"{self.camera_name}: result storage error: {exc}")
+            self.after(
+                0,
+                lambda: self._inspection_done(
+                    result_image,
+                    status,
+                    code_text,
+                    output_path,
+                    _results,
+                    None,
+                    storage_error,
+                ),
+            )
         except Exception as exc:
             debug_log(f"{self.camera_name}: inspection error: {exc}")
-            self.after(0, lambda error=exc: self._inspection_done(None, "FAIL", "", "", error))
+            self.after(0, lambda error=exc: self._inspection_done(None, "FAIL", "", "", [], error, None))
 
-    def _inspection_done(self, result_image, status, code_text, output_path, error):
+    def _inspection_done(self, result_image, status, code_text, output_path, results, error, storage_error):
         self._set_busy(False)
         if error is not None:
             self.last_status = "FAIL"
             self.last_error = str(error)
+            self.status_var.set("FAIL")
+            self.detail_var.set(f"Inspection failed: {error}")
+            self._set_result_state("fail")
             self.show_alert(f"Inspection failed: {error}", "error")
             self.on_finished(self)
             return
@@ -492,12 +569,25 @@ class CameraResultPanel(tk.Frame):
         self.last_status = status
         self.last_code_text = code_text
         self.last_output_path = output_path
+        self.last_results = results
         self._reset_view()
-        self.status_var.set(f"Pin {status}. Code: {code_text or '-'}")
-        if code_text == "NOT FOUND":
+        self.status_var.set(status)
+        self._set_result_state("pass" if status == "PASS" else "fail")
+        if results:
+            detail_lines = [pin_result_text(result) for result in results]
+        else:
+            detail_lines = ["FAIL: reference circle not found."]
+        if code_text:
+            detail_lines.append(f"QR/Data Matrix: {code_text}")
+        if storage_error:
+            detail_lines.append(f"Result storage error: {storage_error}")
+        self.detail_var.set("\n".join(detail_lines))
+        if storage_error:
+            self.show_alert(f"Could not save result: {storage_error}", "warning")
+        elif code_text == "NOT FOUND":
             self.show_alert("No QR/Data Matrix found.", "warning")
         elif status != "PASS":
-            self.show_alert("Pin inspection failed.", "error")
+            self.show_alert("Pin inspection failed. See brightness details above.", "error")
         else:
             self.show_alert(f"Saved: {Path(output_path).name}", "info")
         self.render()
@@ -568,8 +658,25 @@ class CameraResultPanel(tk.Frame):
         self.is_busy = busy
         if message:
             self.status_var.set(message)
+            if busy:
+                self.detail_var.set("Capturing and processing image...")
+                self._set_result_state("running")
         self.render()
         self.update_idletasks()
+
+    def _set_result_state(self, state):
+        colors = {
+            "pass": ("#dcfce7", "#166534", "#16a34a"),
+            "fail": ("#fee2e2", "#b91c1c", "#dc2626"),
+            "running": ("#dbeafe", "#1d4ed8", "#3b82f6"),
+            "idle": ("#ffffff", "#4b5563", "#e5e7eb"),
+        }
+        bg, fg, border = colors.get(state, colors["idle"])
+        self.configure(highlightbackground=border, highlightcolor=border, highlightthickness=3 if state in ("pass", "fail") else 1)
+        for widget in (self.header, self.camera_label, self.status_label):
+            widget.configure(bg=bg)
+        self.status_label.configure(fg=fg)
+        self.camera_label.configure(fg=fg if state in ("pass", "fail") else "#111827")
 
     def _reset_view(self):
         self.zoom = 1.0
@@ -603,7 +710,8 @@ class CameraResultPanel(tk.Frame):
 
     def show_alert(self, message, level="warning"):
         self._alert = (message, level)
-        self.status_var.set(message)
+        if self.last_status is None:
+            self.status_var.set(message)
         if self._alert_job:
             self.after_cancel(self._alert_job)
         self._alert_job = self.after(4500, self.clear_alert)

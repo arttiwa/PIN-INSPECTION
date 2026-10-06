@@ -19,6 +19,7 @@ ENV/
 # Local runtime output
 inspection_output/
 testing_result/
+result/
 *.log
 
 # Local test/capture data

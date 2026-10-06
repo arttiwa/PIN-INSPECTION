@@ -3,6 +3,7 @@ import cv2
 from ck_pin import (
     PinResult,
     draw_results,
+    draw_text_with_background,
     find_circle_near,
     find_reference_hole,
     get_circle_brightness,
@@ -66,14 +67,13 @@ def inspect_image_with_pin_conditions(img, camera_config):
     )
     if ref_hole is None:
         output = img.copy()
-        cv2.putText(
+        draw_text_with_background(
             output,
             "FAIL: reference circle not found",
-            (20, 45),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.0,
+            (20, 100),
+            3.0,
             (0, 0, 220),
-            3,
+            9,
         )
         return output, [], False
 
@@ -112,6 +112,9 @@ def inspect_image_with_pin_conditions(img, camera_config):
                     actual_radius=ar,
                     distance_from_expected=dist,
                     brightness=brightness,
+                    brightness_min=brightness_min,
+                    brightness_max=brightness_max,
+                    failure_reason="" if detected else "brightness_out_of_range",
                 )
             )
         else:
@@ -121,6 +124,9 @@ def inspect_image_with_pin_conditions(img, camera_config):
                     expected_position=(ex, ey),
                     detected=False,
                     distance_from_expected=float("inf"),
+                    brightness_min=brightness_min,
+                    brightness_max=brightness_max,
+                    failure_reason="circle_not_found",
                 )
             )
 

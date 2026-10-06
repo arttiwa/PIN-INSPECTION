@@ -40,8 +40,8 @@ No syntax errors were found in the checked runtime files.
 - Supports `Run Manual`.
 - Supports `Auto Run DI0` when Remote I/O is enabled.
 - Processes `cam0` then `cam1`.
-- Saves visual results to `result/`.
-- Keeps result images for 7 days.
+- Saves raw images, annotated results, and JSON metadata to daily folders in `result/`.
+- Keeps records for up to 15 days and limits total result storage to 1 GB.
 - Sends PASS/FAIL output over Modbus TCP if enabled.
 
 ### Raspberry Pi Capture
@@ -176,4 +176,3 @@ Recommended first production run:
 | `pages/network_config.py` | Remote I/O configuration dialog. |
 | `read_qr_code.py` | QR/Data Matrix reader. |
 | `inspection_settings.json` | Camera and Remote I/O configuration. |
-

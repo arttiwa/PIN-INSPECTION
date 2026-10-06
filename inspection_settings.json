@@ -32,11 +32,11 @@
       "pin_conditions": [
         {
           "search_radius": 50,
-          "brightness_min": 150,
+          "brightness_min": 170,
           "brightness_max": 250
         }
       ],
-      "read_qr": true
+      "read_qr": false
     },
     "cam1": {
       "circle_filter": {
