@@ -44,6 +44,8 @@ class SetupWorkflow(tk.Frame):
         self._busy = False
         self._alert = None
         self._alert_job = None
+        self._render_job = None
+        self._render_cache_key = None
         self.view_mode = "setup"
 
         self.camera_var = tk.StringVar(value=next(iter(CAMERA_SOURCES), "cam0"))
@@ -185,7 +187,7 @@ class SetupWorkflow(tk.Frame):
             cursor="crosshair",
         )
         self.canvas.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 16))
-        self.canvas.bind("<Configure>", lambda _event: self.render())
+        self.canvas.bind("<Configure>", lambda _event: self.schedule_render(80))
         self.canvas.bind("<ButtonPress-1>", self._start_drag)
         self.canvas.bind("<B1-Motion>", self._drag_view)
         self.canvas.bind("<ButtonRelease-1>", self._end_left_drag)
@@ -221,6 +223,7 @@ class SetupWorkflow(tk.Frame):
             self.image = None
             self.result_image = None
             self.view_mode = "setup"
+            self._invalidate_render_cache()
             self._reset_view()
             self.circles = []
             self.selected_ids = self._configured_selected_ids(camera_name)
@@ -235,6 +238,7 @@ class SetupWorkflow(tk.Frame):
         self.image = image
         self.result_image = None
         self.view_mode = "setup"
+        self._invalidate_render_cache()
         self._reset_view()
         self.circles = []
         self.selected_ids = self._configured_selected_ids(camera_name)
@@ -273,6 +277,18 @@ class SetupWorkflow(tk.Frame):
     def _configured_selected_ids(self, camera_name):
         camera_config = load_config().get("cameras", {}).get(camera_name, {})
         return list(camera_config.get("selected_circle_ids", []))
+
+    def _invalidate_render_cache(self):
+        self._render_cache_key = None
+
+    def schedule_render(self, delay=30):
+        if self._render_job:
+            self.after_cancel(self._render_job)
+        self._render_job = self.after(delay, self._run_scheduled_render)
+
+    def _run_scheduled_render(self):
+        self._render_job = None
+        self.render()
 
     def _read_test_image(self, camera_name):
         images = RASP_TEST_IMAGES if SYSTEM_MODE == "rasp" else WINDOW_TEST_IMAGES
@@ -359,10 +375,10 @@ class SetupWorkflow(tk.Frame):
             return
 
         popup = tk.Toplevel(self)
+        popup.withdraw()
         popup.title("Pin Conditions")
         popup.configure(bg="#ffffff")
         popup.transient(self.winfo_toplevel())
-        popup.grab_set()
         popup.resizable(False, False)
 
         frame = tk.Frame(popup, bg="#ffffff", padx=22, pady=20)
@@ -459,6 +475,15 @@ class SetupWorkflow(tk.Frame):
         buttons.grid(row=3 + len(self.selected_ids), column=0, columnspan=4, sticky="e", pady=(18, 0))
         secondary_button(buttons, "Cancel", popup.destroy).grid(row=0, column=0, padx=(0, 8))
         success_button(buttons, "Save", apply_condition).grid(row=0, column=1)
+        popup.update_idletasks()
+        parent_root = self.winfo_toplevel()
+        x = parent_root.winfo_rootx() + (parent_root.winfo_width() - popup.winfo_width()) // 2
+        y = parent_root.winfo_rooty() + (parent_root.winfo_height() - popup.winfo_height()) // 2
+        popup.geometry(f"+{max(0, x)}+{max(0, y)}")
+        popup.deiconify()
+        popup.lift()
+        popup.focus_force()
+        popup.grab_set()
 
     def process_circles(self):
         if self._busy:
@@ -499,6 +524,7 @@ class SetupWorkflow(tk.Frame):
         self.selected_ids = [idx for idx in self.selected_ids if idx < len(self.circles)]
         self.result_image = None
         self.view_mode = "setup"
+        self._invalidate_render_cache()
         self.status_var.set(f"Found {len(self.circles)} circles. Selected {len(self.selected_ids)}.")
         self.render()
 
@@ -509,6 +535,7 @@ class SetupWorkflow(tk.Frame):
         self.selected_ids = []
         self.result_image = None
         self.view_mode = "setup"
+        self._invalidate_render_cache()
         self.status_var.set(f"Found {len(self.circles)} circles. Selected 0.")
         self.render()
 
@@ -608,6 +635,7 @@ class SetupWorkflow(tk.Frame):
 
         self.result_image = result_image
         self.view_mode = "result"
+        self._invalidate_render_cache()
         self._reset_view()
 
         pin_status = "PASS" if pin_passed else "FAIL"
@@ -653,6 +681,7 @@ class SetupWorkflow(tk.Frame):
             self.circle_conditions.setdefault(nearest_id, self._condition_for_circle(nearest_id))
 
         self.status_var.set(f"Found {len(self.circles)} circles. Selected {len(self.selected_ids)}.")
+        self._invalidate_render_cache()
         self.render()
 
     def _screen_to_original(self, sx, sy):
@@ -694,29 +723,40 @@ class SetupWorkflow(tk.Frame):
         self.offset_x = (canvas_w - render_w) // 2 + int(self.pan_screen_x)
         self.offset_y = (canvas_h - render_h) // 2 + int(self.pan_screen_y)
 
-        display = cv2.resize(self.image, (render_w, render_h), interpolation=cv2.INTER_AREA)
-        selected = set(self.selected_ids)
-        for idx, (x, y, radius) in enumerate(self.circles):
-            sx = int(x * self.scale)
-            sy = int(y * self.scale)
-            sr = max(3, int(radius * self.scale))
-            color = (37, 99, 235) if idx not in selected else (22, 163, 74)
-            thickness = 2 if idx not in selected else 4
-            cv2.circle(display, (sx, sy), sr, color, thickness)
-            cv2.circle(display, (sx, sy), 3, color, -1)
-            cv2.putText(
-                display,
-                str(idx),
-                (sx + sr + 4, sy),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                color,
-                2,
-            )
+        cache_key = (
+            "setup",
+            id(self.image),
+            render_w,
+            render_h,
+            round(self.zoom, 4),
+            tuple(self.circles),
+            tuple(self.selected_ids),
+        )
+        if cache_key != self._render_cache_key:
+            display = cv2.resize(self.image, (render_w, render_h), interpolation=cv2.INTER_AREA)
+            selected = set(self.selected_ids)
+            for idx, (x, y, radius) in enumerate(self.circles):
+                sx = int(x * self.scale)
+                sy = int(y * self.scale)
+                sr = max(3, int(radius * self.scale))
+                color = (37, 99, 235) if idx not in selected else (22, 163, 74)
+                thickness = 2 if idx not in selected else 4
+                cv2.circle(display, (sx, sy), sr, color, thickness)
+                cv2.circle(display, (sx, sy), 3, color, -1)
+                cv2.putText(
+                    display,
+                    str(idx),
+                    (sx + sr + 4, sy),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    color,
+                    2,
+                )
 
-        self.display_image = display
-        rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
-        self.photo = ImageTk.PhotoImage(Image.fromarray(rgb))
+            self.display_image = display
+            rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
+            self.photo = ImageTk.PhotoImage(Image.fromarray(rgb))
+            self._render_cache_key = cache_key
 
         self.canvas.delete("all")
         self.canvas.create_image(self.offset_x, self.offset_y, image=self.photo, anchor="nw")
@@ -741,10 +781,19 @@ class SetupWorkflow(tk.Frame):
         self.offset_x = (canvas_w - render_w) // 2 + int(self.pan_screen_x)
         self.offset_y = (canvas_h - render_h) // 2 + int(self.pan_screen_y)
 
-        display = cv2.resize(self.result_image, (render_w, render_h), interpolation=cv2.INTER_AREA)
-        self.display_image = display
-        rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
-        self.photo = ImageTk.PhotoImage(Image.fromarray(rgb))
+        cache_key = (
+            "result",
+            id(self.result_image),
+            render_w,
+            render_h,
+            round(self.zoom, 4),
+        )
+        if cache_key != self._render_cache_key:
+            display = cv2.resize(self.result_image, (render_w, render_h), interpolation=cv2.INTER_AREA)
+            self.display_image = display
+            rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
+            self.photo = ImageTk.PhotoImage(Image.fromarray(rgb))
+            self._render_cache_key = cache_key
 
         self.canvas.delete("all")
         self.canvas.create_image(self.offset_x, self.offset_y, image=self.photo, anchor="nw")
@@ -766,7 +815,7 @@ class SetupWorkflow(tk.Frame):
             button.configure(state=state)
         if message:
             self.status_var.set(message)
-        self.render()
+        self.schedule_render(20)
         self.update_idletasks()
 
     def _reset_view(self):
@@ -786,7 +835,7 @@ class SetupWorkflow(tk.Frame):
         factor = self.zoom / old_zoom
         self.pan_screen_x = event.x - (event.x - self.pan_screen_x) * factor
         self.pan_screen_y = event.y - (event.y - self.pan_screen_y) * factor
-        self.render()
+        self.schedule_render(20)
 
     def _start_drag(self, event):
         if self._busy:
@@ -802,7 +851,7 @@ class SetupWorkflow(tk.Frame):
             self._drag_moved = True
         self.pan_screen_x = start_pan_x + event.x - start_x
         self.pan_screen_y = start_pan_y + event.y - start_y
-        self.render()
+        self.schedule_render(20)
 
     def _end_drag(self, _event):
         self._drag_start = None

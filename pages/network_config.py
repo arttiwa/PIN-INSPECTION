@@ -20,10 +20,10 @@ DEFAULT_REMOTE_IO = {
 class NetworkConfigDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
+        self.withdraw()
         self.title("Remote I/O Connection")
         self.configure(bg="#ffffff")
         self.transient(parent.winfo_toplevel())
-        self.grab_set()
         self.resizable(False, False)
 
         self.status_var = tk.StringVar(value="Configure Modbus TCP/IP Remote I/O.")
@@ -33,6 +33,10 @@ class NetworkConfigDialog(tk.Toplevel):
         self._load_values()
         self._build_layout()
         self._center(parent)
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        self.grab_set()
 
     def _load_values(self):
         config = load_config()

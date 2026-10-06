@@ -345,6 +345,8 @@ class CameraResultPanel(tk.Frame):
         self._drag_start = None
         self._alert = None
         self._alert_job = None
+        self._render_job = None
+        self._render_cache_key = None
         self.is_busy = False
         self.last_status = None
         self.last_code_text = ""
@@ -386,7 +388,7 @@ class CameraResultPanel(tk.Frame):
             cursor="fleur",
         )
         self.canvas.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
-        self.canvas.bind("<Configure>", lambda _event: self.render())
+        self.canvas.bind("<Configure>", lambda _event: self.schedule_render(80))
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Button-4>", self._on_mousewheel)
         self.canvas.bind("<Button-5>", self._on_mousewheel)
@@ -486,6 +488,7 @@ class CameraResultPanel(tk.Frame):
             return
 
         self.image = result_image
+        self._invalidate_render_cache()
         self.last_status = status
         self.last_code_text = code_text
         self.last_output_path = output_path
@@ -511,6 +514,18 @@ class CameraResultPanel(tk.Frame):
             path = APP_DIR / path
         return cv2.imread(str(path))
 
+    def _invalidate_render_cache(self):
+        self._render_cache_key = None
+
+    def schedule_render(self, delay=30):
+        if self._render_job:
+            self.after_cancel(self._render_job)
+        self._render_job = self.after(delay, self._run_scheduled_render)
+
+    def _run_scheduled_render(self):
+        self._render_job = None
+        self.render()
+
     def render(self):
         self.canvas.delete("all")
         if self.image is None:
@@ -534,9 +549,17 @@ class CameraResultPanel(tk.Frame):
         self.offset_x = (canvas_w - render_w) // 2 + int(self.pan_screen_x)
         self.offset_y = (canvas_h - render_h) // 2 + int(self.pan_screen_y)
 
-        display = cv2.resize(self.image, (render_w, render_h), interpolation=cv2.INTER_AREA)
-        rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
-        self.photo = ImageTk.PhotoImage(Image.fromarray(rgb))
+        cache_key = (
+            id(self.image),
+            render_w,
+            render_h,
+            round(self.zoom, 4),
+        )
+        if cache_key != self._render_cache_key:
+            display = cv2.resize(self.image, (render_w, render_h), interpolation=cv2.INTER_AREA)
+            rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
+            self.photo = ImageTk.PhotoImage(Image.fromarray(rgb))
+            self._render_cache_key = cache_key
         self.canvas.create_image(self.offset_x, self.offset_y, image=self.photo, anchor="nw")
         self._draw_loading_overlay()
         self._draw_alert_overlay()
@@ -560,7 +583,7 @@ class CameraResultPanel(tk.Frame):
             self.zoom = min(8.0, self.zoom * 1.2)
         else:
             self.zoom = max(1.0, self.zoom / 1.2)
-        self.render()
+        self.schedule_render(20)
 
     def _start_drag(self, event):
         if self.is_busy:
@@ -573,7 +596,7 @@ class CameraResultPanel(tk.Frame):
         start_x, start_y, start_pan_x, start_pan_y = self._drag_start
         self.pan_screen_x = start_pan_x + event.x - start_x
         self.pan_screen_y = start_pan_y + event.y - start_y
-        self.render()
+        self.schedule_render(20)
 
     def _end_drag(self, _event):
         self._drag_start = None

@@ -24,6 +24,8 @@ class PinInspectionUI(tk.Tk):
             "use": UsePage(self.content, self),
             "setup": SetupPage(self.content, self),
         }
+        for page in self.pages.values():
+            page.grid(row=0, column=0, sticky="nsew")
         self.show_page("use")
         self.after(120, self._poll_runner)
 
@@ -105,11 +107,13 @@ class PinInspectionUI(tk.Tk):
         self.content.columnconfigure(0, weight=1)
 
     def show_page(self, name):
-        if self.active_page:
-            self.active_page.grid_remove()
-        self.active_page = self.pages[name]
+        next_page = self.pages[name]
+        if self.active_page is next_page:
+            return
+
+        self.active_page = next_page
         self.active_page.refresh()
-        self.active_page.grid(row=0, column=0, sticky="nsew")
+        self.active_page.tkraise()
 
         for key, button in self.nav_buttons.items():
             selected = key == name
