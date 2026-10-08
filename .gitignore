@@ -30,3 +30,6 @@ destination/
 result_*.jpg
 get_circles/*_geted.jpg
 get_circles/*_circles.json
+
+# Local release packages
+release/

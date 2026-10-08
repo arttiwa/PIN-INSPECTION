@@ -1,6 +1,4 @@
 opencv-python
 numpy
 zxing-cpp
-flask
-requests
 pillow

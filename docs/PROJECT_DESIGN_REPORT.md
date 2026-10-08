@@ -1,6 +1,6 @@
 # PIN Inspection - Design Report
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-10-06 (Version 2.0.0)
 
 ## Executive Summary
 
@@ -19,7 +19,7 @@ The latest important deployment fixes are:
 Static Python compile check passed:
 
 ```powershell
-python -m py_compile main.py pin_inspection_app.py read_qr_code.py ck_pin.py get_circles.py pages\app.py pages\setup_workflow.py pages\use_workflow.py pages\inspection_logic.py pages\runner.py pages\config.py pages\widgets.py pages\remote_io.py pages\network_config.py
+python -m py_compile installer.py main.py pin_inspection_app.py read_qr_code.py ck_pin.py test_cam_new.py pages\*.py
 ```
 
 No syntax errors were found in the checked runtime files.
@@ -68,9 +68,9 @@ No syntax errors were found in the checked runtime files.
 
    This value is mainly metadata in the current code. It can confuse operators, so production notes should emphasize the launch command.
 
-3. `cam0` currently has QR/Data Matrix enabled.
+3. QR/Data Matrix is currently disabled for both cameras.
 
-   If the actual camera view has no QR/Data Matrix, keep this disabled in Setup Mode. The app now handles `NOT FOUND`, but disabling QR will reduce run time and memory pressure.
+   Keep it disabled in Setup Mode when the camera view has no code. The app handles `NOT FOUND` without exiting, but disabling QR reduces run time and memory pressure.
 
 4. Remote I/O is currently enabled.
 
@@ -97,7 +97,7 @@ No syntax errors were found in the checked runtime files.
 1. Confirm Pi command:
 
    ```bash
-   PIN_SYSTEM_MODE=rasp python main.py
+   ~/Desktop/run.sh
    ```
 
 2. Confirm Pi camera tools:
@@ -155,7 +155,7 @@ Required hardware checks:
 
 Recommended first production run:
 
-1. Start app with `PIN_SYSTEM_MODE=rasp python main.py`.
+1. Start app with `~/Desktop/run.sh`.
 2. Open Setup Mode.
 3. Select `cam0`, click Recapture, Process, select pin holes, set QR option, Save Setup.
 4. Select `cam1`, click Recapture, Process, select pin holes, set QR option, Save Setup.

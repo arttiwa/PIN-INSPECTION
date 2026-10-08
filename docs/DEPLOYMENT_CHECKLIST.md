@@ -1,6 +1,8 @@
 # PIN Inspection - Deployment Checklist
 
-Last reviewed: 2026-09-14
+Release: Version 2.0.0
+
+Last reviewed: 2026-10-06
 
 ## Raspberry Pi Setup
 
@@ -13,13 +15,13 @@ python installer.py --install-system
 By default, the installer creates the virtual environment at:
 
 ```text
-/home/pi/.venv
+/home/pi/.env
 ```
 
 If you want a different path, pass `--venv`, for example:
 
 ```bash
-python installer.py --venv /home/pi/.env --install-system
+python installer.py --venv /home/pi/pin-inspection-env --install-system
 ```
 
 If system packages are already installed:
@@ -57,7 +59,19 @@ rpicam-hello --list-cameras
 - [ ] Start in Raspberry Pi mode. If installed with `installer.py`, use:
 
 ```bash
-./run_pi.sh
+~/Desktop/run.sh
+```
+
+- [ ] Confirm the installer copied the camera test utility to:
+
+```text
+/home/pi/Desktop/test_cam_new.py
+```
+
+Run it when camera hardware needs to be checked:
+
+```bash
+python ~/Desktop/test_cam_new.py
 ```
 
 Manual equivalent:
@@ -112,6 +126,8 @@ result/session_YYYY-MM-DD/
 
 ## Production Readiness
 
+- [ ] Verify `remote_io.host`, Modbus addresses, and network access for this machine.
+- [ ] Recalibrate both cameras after mounting and lighting are fixed.
 - [ ] Manual run stable for at least 10 cycles.
 - [ ] No unexpected `Killed` process exit.
 - [ ] QR disabled on cameras that do not need code reading.

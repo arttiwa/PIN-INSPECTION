@@ -12,7 +12,7 @@ Install OS packages too:
     python installer.py --install-system
 
 Then run:
-    ./run_pi.sh
+    ~/Desktop/run.sh
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import shlex
 import shutil
 import stat
 import subprocess
@@ -28,9 +29,9 @@ from pathlib import Path
 
 
 APP_DIR = Path(__file__).resolve().parent
-DEFAULT_VENV = Path.home() / ".venv"
+DEFAULT_VENV = Path.home() / ".env"
 REQUIREMENTS = APP_DIR / "requirements.txt"
-RUN_SCRIPT = APP_DIR / "run_pi.sh"
+CAMERA_TEST_SCRIPT = APP_DIR / "test_cam_new.py"
 
 APT_PACKAGES = [
     "python3-pip",
@@ -181,21 +182,48 @@ def install_python_packages(
         raise RuntimeError(f"pip install failed: {package}")
 
 
-def write_run_script(python_path: Path) -> None:
+def desktop_directory() -> Path:
+    if is_linux() and shutil.which("xdg-user-dir"):
+        result = subprocess.run(
+            ["xdg-user-dir", "DESKTOP"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip()).expanduser()
+    return Path.home() / "Desktop"
+
+
+def write_desktop_files(python_path: Path) -> Path:
+    desktop_dir = desktop_directory()
+    desktop_dir.mkdir(parents=True, exist_ok=True)
+    run_script = desktop_dir / "run.sh"
+    app_dir_shell = shlex.quote(str(APP_DIR))
+    python_shell = shlex.quote(str(python_path))
     script = f"""#!/usr/bin/env bash
 set -e
-cd "$(dirname "$0")"
+cd {app_dir_shell}
 export PIN_SYSTEM_MODE=rasp
-"{python_path}" main.py
+exec {python_shell} main.py
 """
-    RUN_SCRIPT.write_text(script, encoding="utf-8", newline="\n")
+    run_script.write_text(script, encoding="utf-8", newline="\n")
 
-    mode = RUN_SCRIPT.stat().st_mode
-    RUN_SCRIPT.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    log(f"Created launcher: {RUN_SCRIPT}")
+    mode = run_script.stat().st_mode
+    run_script.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    log(f"Created desktop launcher: {run_script}")
+
+    if CAMERA_TEST_SCRIPT.is_file():
+        destination = desktop_dir / CAMERA_TEST_SCRIPT.name
+        shutil.copy2(CAMERA_TEST_SCRIPT, destination)
+        log(f"Copied camera test to Desktop: {destination}")
+    else:
+        warn(f"Camera test script not found: {CAMERA_TEST_SCRIPT}")
+
+    return run_script
 
 
-def create_desktop_autostart() -> None:
+def create_desktop_autostart(run_script: Path) -> None:
     if not is_linux():
         warn("--create-autostart is only supported on Linux.")
         return
@@ -209,7 +237,7 @@ def create_desktop_autostart() -> None:
                 "[Desktop Entry]",
                 "Type=Application",
                 "Name=PIN Inspection",
-                f"Exec={RUN_SCRIPT}",
+                f"Exec={run_script}",
                 f"Path={APP_DIR}",
                 "Terminal=false",
                 "X-GNOME-Autostart-enabled=true",
@@ -297,16 +325,16 @@ def main() -> int:
             continue_optional=not args.strict_optional,
         )
 
-    write_run_script(python_path)
+    run_script = write_desktop_files(python_path)
 
     if args.create_autostart:
-        create_desktop_autostart()
+        create_desktop_autostart(run_script)
 
     if not args.skip_checks:
         check_runtime(python_path)
 
     log("Done.")
-    log("Run on Raspberry Pi with: ./run_pi.sh")
+    log(f"Run on Raspberry Pi with: {run_script}")
     return 0
 
 

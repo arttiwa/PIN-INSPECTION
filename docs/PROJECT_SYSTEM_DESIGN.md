@@ -1,6 +1,6 @@
 # PIN Inspection - System Design
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-10-06 (Version 2.0.0)
 
 ## 1. Purpose
 
@@ -63,7 +63,7 @@ Important sections:
 
 Current configured cameras:
 
-- `cam0`: 1 expected pin hole, `read_qr=true`.
+- `cam0`: 1 expected pin hole, `read_qr=false`.
 - `cam1`: 3 expected pin holes, `read_qr=false`.
 
 Current Remote I/O config:
